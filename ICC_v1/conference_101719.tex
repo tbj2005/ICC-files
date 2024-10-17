@@ -28,11 +28,11 @@
 
 \maketitle
 
-%随着当前训练模型训练集和参数量大小的大幅提升，使用单个GPU训练模型会导致训练时间极长，内存资源无法容纳整个模型的参数等问题，分布式并行训练（如数据并行、专家并行等）被提出了以解决这些问题。随着GPU计算能力的提升和并行技术的成熟，模型训练的通信占比越来越高，训练瓶颈逐渐向通信转化。使用光数据中心网络训练大型分布式模型相较于传统使用电包交换的数据中心网络具有明显优势，被认为是当前大模型训练发展的方向。在我们以往的工作中研究了对光数据中心网络的业务调度，但是对业务的建模是粗糙的，而在这篇工作中，我们统一了不同业务的迭代模型，使得业务模型更加契合实际训练过程。并使用时分复用的方式设计了一种简单高效的双阶段业务调度方案，在一部分业务进行通信的时间进行另一部分业务的训练，从而大幅提示GPU利用率，间接提升模型训练效率。经过我们的仿真证明。。。。。。
+%随着当前训练模型训练集和参数量大小的大幅提升，使用单个GPU训练模型会导致训练时间极长，内存资源无法容纳整个模型的参数等问题，分布式并行训练（如数据并行、专家并行等）被提出了以解决这些问题。随着GPU计算能力的提升和并行技术的成熟，模型训练的通信占比越来越高，训练瓶颈逐渐向通信转化。使用光数据中心网络训练大型分布式模型相较于传统使用电包交换的数据中心网络具有明显优势，被认为是当前大模型训练发展的方向。在这篇文章中，我们考虑了在光数据中心网络中存在多种使用不同并行方案业务的情况，并对网络和业务进行了建模。我们基于时分复用的方式设计了一种简单高效的多阶段业务调度方案，用以联合调度若干业务的集合通信和训练过程。经过仿真，我们的调度方案相对于不采用时分复用的方案，平均性能提升了。。。
 \begin{abstract}
-With the significant increase in the amount of parameters and the size of training datasets in current model training, single GPU can no longer accommodate the entire model's parameters, and the training time has become excessively long. This has led to the emergence of distributed parallel training methods, such as data parallelism (DP) and expert parallelism (EP). As GPU computation speed continues to improve, the proportion of communication in model training is increasing, which gradually shifting the training bottleneck towards communication. Utilizing optical data center networks (ODCN) for training large distributed models presents clear advantages over traditional electrical packet switch (EPS) data center networks, and is considered a promising direction for the development of large model training.
+With the significant increase in the size of training datasets and the number of parameters in current models, training models on a single GPU has led to prolonged training times and memory constraints that hinder the accommodation of the entire model's parameters. To address these challenges, distributed parallel training methods, such as data parallelism (DP) and expert parallelism (DP), have been proposed. As the improvement of GPU computing capabilities and maturation of parallel technologies, the proportion of communication during model training has risen, gradually shifting the training bottleneck towards communication. Training large distributed models using optical data center networks (ODCN) presents clear advantages over traditional data center networks based on electrical packet switched (EPS), positioning it as a promising direction for the development of large model training.
 
-In our previous work, we explored job scheduling in ODCN, however, the modeling of jobs was somewhat rudimentary. In this paper, we reconstruct and refine the job models, creating a job model that aligns more closely with the actual training process. We also designed a simple yet efficient bi-stage job scheduling scheme using time division multiplexing method. This allows for the training of one set of jobs while another set is engaged in communication, significantly improving GPU utilization and, consequently, enhancing model training efficiency. Our simulations demonstrate that...
+In this paper, we consider scenarios in which various jobs employing different parallelization schemes coexist within an optical data center network, and we model both the network and the jobs. A simple and efficient multi-stage job scheduling scheme based on time-division multiplexing is proposed to schedule the communication and training processes for multiple jobs jointly. Simulation results indicate that our scheduling scheme, compared to a non-time-division multiplexing approach, achieves an average performance improvement of…
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -40,34 +40,40 @@ In our previous work, we explored job scheduling in ODCN, however, the modeling 
 \end{IEEEkeywords}
 
 \section{Introduction}
-%1. 随着AI的发展，大语言模型的参数量和训练集已经到达令人吃惊的规模，以GPT4为例，其参数量大小为1800B，训练数据集包含约13万亿个token。单个GPU的方案在做模型训练时会遇到训练时间极长，且内存无法容纳整个模型的问题，因此目前的AI训练常常在集群（如Meta、Colossus）中使用分布式训练方案，将模型和训练任务分摊给集群中的每个 GPU。随着单个 GPU 计算能力的提高，在集群中训练AI模型的速度提升日渐缓慢，GPU之间的通信延时占比越来越高逐渐成为训练过程中的瓶颈。如图1 所示，传统的数据中心网络用于训练集群中的模型时使用电路交换，这会导致pod间的带宽分配不够灵活，无法满足倾斜流量的需求，不仅如此，传统网络中采用ECMP协议，在训练时会出现哈希极化现象，这会大幅提高流量的倾斜度，并提高训练时间。而在图1(b)中的光数据中心网络中由于其可以灵活改变网络拓扑，从而适应不同倾斜方式的流量，且由于OXC一对一连接的性质，不会出现多条最优路径，因此更加适配集群中的AI模型训练。
+%1. 随着AI的发展，大语言模型的参数量和训练集已经到达令人吃惊的规模，以GPT4为例，其参数量大小为1800B，训练数据集包含约13万亿个token。单个GPU的方案在做模型训练时会遇到训练时间极长，且内存无法容纳整个模型的问题，因此目前的AI训练常常在集群（如Meta、Colossus）中使用分布式训练方案，将模型和训练任务分摊给集群中的每个 GPU。随着单个 GPU 计算能力的提高，在集群中训练AI模型的速度提升日渐缓慢，GPU之间的通信延时占比越来越高逐渐成为训练过程中的瓶颈。如图1 所示，传统的数据中心网络用于训练集群中的模型时使用包交换，其网络拓扑固定，这会导致pod间的带宽分配不够灵活，无法满足倾斜变化流量的需求。不仅如此，传统网络中采用ECMP协议，在训练时会出现哈希极化现象，这会大幅提高流量的倾斜度，并提高训练时间。而在图1(b)中的光数据中心网络中由于其可以灵活改变网络拓扑，从而适应不同倾斜方式的流量，且由于使用电路交换而非包交换，不会因为出现多条路径导致哈希极化现象的产生，因此更加适配集群中的AI模型训练。
 
-With the advancement of artificial intelligence (AI), the scale of parameters and training dataset of large language model (LLM) have reached astonishing levels. For instance, GPT-4 boasts a parameter count of 1.8 trillion and is trained on a dataset comprising approximately 13 trillion tokens \cite{GPT4}. Single GPU solution encounters significant challenges during model training, including prolonged training times and insufficient memory to accommodate entire models. Consequently, current AI training often employs distributed training schemes \cite{surveyDML} within clusters (such as Meta \cite{Meta} and Colossus), distributing both models and training tasks across each GPU in the cluster. As the computational speed of individual GPU increases, the rate of improvement in training speed for AI models within clusters has gradually slowed, with communication latency between GPUs increasing in the proportion of iteration time and becoming a bottleneck in the training process. As illustrated in \emph{Figure} \ref{fig:sub1}, traditional data center networks utilize EPS for model training in clusters, resulting in inflexible bandwidth allocation between pods that fails to meet the demands of skewed traffic. Furthermore, the use of Equal-Cost Multi-Path (ECMP) protocol in traditional networks can lead to hash polarization during training \cite{HPN}, significantly increasing traffic skew and prolonging training times. In contrast, optical data center networks in \emph{Figure} \ref{fig:sub2} can flexibly adjust network topology to accommodate skewed traffic. Due to point-to-point connection characteristics of OXC, networks utilizing optical circuit switching (OCS) avoid the existence of multiple optimal paths, making them more suitable for AI model training within clusters.
+With the advancement of artificial intelligence (AI), the parameter scale and training dataset of large language model (LLM) have reached astonishing sizes. For instance, GPT-4 has a parameter count of 1.8 trillion and is trained on a dataset comprising approximately 13 trillion tokens \cite{GPT4}.Training models using a single GPU often encounters challenges such as excessively long training times and insufficient memory capacity to accommodate the entire model. Consequently, current AI training often employs distributed training schemes \cite{surveyDML} within clusters (such as Meta \cite{Meta} and Colossus), distributing both models and training tasks across each GPU in the cluster. As the computational speed of individual GPU increases, the rate of improvement in training speed for AI models within clusters has gradually slowed, with the proportion of collective communication latency between GPUs increasing in iteration time and becoming a bottleneck in the training process progressively.
+
+As illustrated in \emph{Figure} \ref{fig:sub1}, traditional data center networks utilize EPS for model training in clusters, resulting in inflexible bandwidth allocation between pods that fails to meet the demands of time-varying and skewed traffic. Furthermore, the use of Equal-Cost Multi-Path (ECMP) protocol in traditional networks can lead to hash polarization during training \cite{HPN}, significantly increasing traffic skew and prolonging training times. In contrast, in ODCN illustrated in \emph{Figure} \ref{fig:sub2}, the flexibility to adapt the network topology enables it to accommodate various traffic patterns effectively. Additionally, by employing circuit switching instead of packet switching, this approach eliminates the risk of hash polarization arising from the existence of multiple paths. Consequently, this network design proves to be more suitable for AI model training within clusters.
 
 %2. 在使用分布式方式训练模型时，需要将数据集和模型分配给每个GPU以并行训练，常用的并行方案有数据并行、专家并行等。在实际数据中心网络训练模型的过程中，常常会同时出现多种并行方案的训练任务。
 
-When employing distributed methods for training models, it is necessary to allocate the dataset and model to each GPU for parallel training. Common parallelization strategies include data parallelism, expert parallelism. In practical data center networks, various parallel training tasks often occur simultaneously.
+When employing distributed methods for training models, it is necessary to allocate the dataset and model to each GPU for parallel training. Common parallelization strategies include DP and EP. In practical data center networks, various parallel training tasks often occur simultaneously.
 
-%在本文中，我们为多种并行方案业务的训练和通信过程进行了建模，并希望对这些业务进行统一调度。在光数据中心网络中分布式业务的调度相比传统数据中心网络更加复杂。由于ODCN中拓扑的重构延时较长，在百微秒级，因此重构时间和重构方案也是需要调度的，此时问题的复杂度会大幅提高。如果让所有业务在同一段时间内进行训练，在另一段时间进行计算，以此方式循环，此时我们可以很简单地获得调度放案。但是该方案计算和训练时间完全分开，网络的资源没有被完全使用，因此获得的方案结果往往并不好。为了迅速且高效地调度网络中的多种AI训练任务，我们提出了一种基于时分复用的四阶段算法，用于联合调度各业务的训练和通信过程。
+%在本文中，我们为多种并行方案业务的迭代过程进行了建模，并希望对这些业务的训练和集合通信过程进行联合调度。由于ODCN中拓扑的重构延时较长，在百微秒级，因此我们还需要调度重构时间和重构方案，此时问题的复杂度相对于传统数据中心网络会大幅提高。如果让所有业务在同一段时间内同时开始训练，在所有业务完成训练后同时开始进行集合通信，并以此方式循环，此时我们可以简单地获得业务调度放案和OXC拓扑。但是该方案将计算和训练时间完全分开，网络的资源没有被完全使用，因此在通信占比较大的情况下，该方案获得的结果往往并不好。为了迅速且高效地调度网络中的多种AI训练任务，我们提出了一种基于时分复用的多阶段算法，用于联合调度各业务的训练和通信过程。
 
-In this paper, we model various parallel schemes for jobs and aim to achieve unified scheduling of these services.The scheduling of distributed jobs in ODCN is inherently more complex than in traditional data center networks. This complexity arises from the relatively long reconfiguration delay of the topology in ODCN, which can reach the order of hundreds of microseconds \cite{Zerwas2021}. Consequently, both the reconfiguration time and the reconfiguration schemes must be scheduled, significantly increasing the problem's complexity. Moreover, when considering the training process of individual jobs, we observe that during collective communication, the relevant GPUs remain idle and do not perform computations. This idleness leads to reduced GPU utilization, which indirectly impacts training efficiency. To address the need for rapid and efficient scheduling of multiple AI training jobs within the network, we propose a time-division multiplexing-based four-stage algorithm designed for the joint scheduling of training and communication processes across various jobs.
+In this paper, we model the iterative process of jobs employing different parallel scheme and aim to jointly schedule the training and collective communication processes of these jobs. Given that the topology reconfiguration delay in the ODCN is significant, on the order of hundreds of microseconds \cite{Zerwas2021}, we must also consider the scheduling of reconfiguration time and schemes, which notably increases the complexity of the problem compared to traditional data center networks. If all jobs start their computing process simultaneously and then proceed to collective communication only after completing their training, this cyclical approach would allow for a straightforward derivation of job scheduling plans and Optical Cross-Connect (OXC) topology. However, this strategy entirely separates computation and training times, resulting in underutilization of network resources; thus, it often yields suboptimal results in scenarios where communication demands are high. To effectively and efficiently schedule multiple AI training jobs within the network, we propose a time-division multiplexing-based multi-stage algorithm for the joint scheduling of the training and communication processes of each job.
 
 %这篇文章的贡献为:
 The contribution of this paper is as follow:
 
 \begin{itemize}
-	%1.在ODCN中面向多种并行方案，对使用在网计算的业务结构进行系统建模；
+	%1.在我们考虑的网络模型中，我们总结了三类业务的训练模式，并说明每个业务都可以看作四个阶段的循环；
 	
-	\item A systematic modeling of jobs utilizing INC is conducted with a focus on various parallel schemes in ODCN;
+	\item In the network model under consideration, we categorize the training patterns of three types of jobs and illustrate that each job can be viewed as a cyclical process comprising four distinct stages.
 	
-	%2.对这些业务提出了一种基于时分复用的双阶段策略，旨在以多项式时间复杂度内获得易于调度且高效的方案；
+	%2.对这些业务提出了一种基于时分复用的四阶段策略，旨在以多项式时间复杂度内获得易于调度且高效的方案；
 	
-	\item A time-division multiplexing-based bi-stage strategy is proposed for these jobs, aiming to achieve an easily schedulable and efficient solution within polynomial time complexity.
+	\item A time-division multiplexing-based four-stage strategy is proposed for these jobs, aiming to achieve an easily schedulable and efficient solution within polynomial time complexity.
 	
-	%3.经过我们的仿真证明，该方案相对于。。。。
+	%3.经过我们的仿真证明，该方案相对于不使用时分复用的集合调度策略，训练效率提升了 。
 	
-	\item
+	\item Our simulations demonstrate that this approach improves training efficiency by *** compared to aggregation scheduling strategies that do not employ time-division multiplexing.
 \end{itemize}
+
+\section{Problem Description}
+
+\subsection{Network model}
 
 \begin{figure}[htbp]
 	\centering
@@ -85,22 +91,6 @@ The contribution of this paper is as follow:
 	\end{subfigure}
 	\label{fig:total}
 \end{figure}
-\begin{figure}
-	\centering
-	\includegraphics[width=1\linewidth]{figure/picture4}
-	\caption{Training process of DP and EP}
-	\label{fig:picture4}
-\end{figure}
-
-\begin{figure}
-	\centering
-	\includegraphics[width=1\linewidth]{figure/picture5}
-	\caption{PS architecture and RAR architecture}
-	\label{fig:picture5}
-\end{figure}
-\section{Problem Description}
-
-\subsection{Network model}
 
 %图1 (a) 表示了我们考虑的三层clos网络架构，主要由OXC层，ToR层和服务器层组成。OXC层用于完成ToR间的光互联通信，与包交换不同，OXC层在通信前需要提前在端口间建立一条一对一的连接，然后流量通过该连接从源端口进入目的端口。由于循环器的引入，OXC层的每条连接都是半双工通信，也就是说在同一时刻，一条连接只能提供一个方向的带宽。由于技术原因，OXC连接拓扑的重构延时在百微秒级，在模型训练时是无法忽视的。ToR层由每个pod的交换机组成，每个架顶交换机都连接了若干OXC端口用于与其他架顶交换机的通信。服务器层由若干pod下的GPU组成，用以执行训练任务。在通信需求产生后，流量会进入源所在pod对应的ToR，然后使用OXC将流量路由至目的pod对应的ToR。
 
@@ -114,6 +104,20 @@ We utilize two planes to characterize the traffic demand within the network. Due
 %在本文中，我们考虑了三种集合通信类型的业务：PS类，Ring-AllReduce类和AllToAll类。前两种业务使用数据并行方案，AllToAll业务使用专家并行方案。
 
 In this paper, we consider three types of collective communication workloads: PS type, RAR type, and AllToAll type. The first two types employ data parallelism, while the AllToAll type utilizes expert parallelism. 
+
+\begin{figure}
+	\centering
+	\includegraphics[width=1\linewidth]{figure/picture4}
+	\caption{Training process of DP and EP}
+	\label{fig:picture4}
+\end{figure}
+
+\begin{figure}
+	\centering
+	\includegraphics[width=1\linewidth]{figure/picture5}
+	\caption{PS architecture and RAR architecture}
+	\label{fig:picture5}
+\end{figure}
 
 \begin{itemize}
 	% 数据并行：如图3上半部分表示，均分数据集，每个GPU存储了模型的所有参数，并训练属于它的一份数据集。在完成本轮训练后，需要使用随机梯度下降算法同步各GPU中的参数，然后使用同步后的参数进入下一轮的训练。在参数同步过程中，GPU间常用的集合通信方案有两种，分别为PS方案和AllReduce方案，这两种方案都兼容在网计算方式。在网计算可以使得网络中的交换机获得同步参数的能力，且在网计算与传输过程同时进行，也就是说在使用INC后，每一次迭代的聚合和通信过程是同步的。在数据中心网络中可以使用可编程交换机如Tofino，赋予架顶交换机在网计算能力。
