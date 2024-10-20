@@ -8,6 +8,8 @@
 \usepackage{graphicx}
 \usepackage{pdfpages}
 \usepackage{subfigure}
+\usepackage{tabularx}
+\usepackage{booktabs}
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{subcaption}
@@ -147,9 +149,9 @@ Based on the training characteristics of the three types of jobs, we can derive 
 
 For RAR and AllToAll jobs, the iterative process can be straightforwardly divided into two stages: the training process and the collective communication process. However, in the case of PS, we cannot treat it in this manner. In the upper part of \emph{Figure} \ref{fig:picture6}, we explain the reasoning. We desire that the traffic demands within each stage do not experience abrupt changes, which would facilitate the scheduling of our OXC topology. It is evident that after the PS service completes aggregation, the traffic demand shifts from push to pull, which may not be accommodated by the OXC topology. On the contrary, although the collective communication process of RAR also involves aggregation, the traffic demand remains unchanged. Consequently, we divide each iteration of the PS service into four stages: local training,push,aggregation and pull. Since the iterations for twice of RAR and AllToAll jobs also consist of four stages, these four stages can adequately represent the iterative processes of all three jobs, with fixed traffic demands in each stage.
 
-%为了重叠不同业务的通信和训练过程，我们将业务分成两组，并使用时分复用的方式调度这两组业务。图五下半部分的例子说明了我们的四阶段调度方案，可以看出，每轮都被我们分成了四个阶段，我们将通信完成后的拓扑重构时间放进通信时间，以P11和P21组成的一阶段为例，同时进行一组业务的训练和二组业务的通信，在该阶段的训练和通信任务全部完成后，开始二阶段的任务。这种调度方案相对于不使用时分复用的集合调度方案，在理论上训练效率被大幅提高了。最终调度问题被我们分成了两个子问题：1. 业务怎样分组；2. 四个阶段的OXC拓扑怎样计算。
+%为了重叠不同业务的通信和训练过程，我们将业务分成两组，并使用时分复用的方式调度这两组业务。图五下半部分的例子说明了我们的四阶段调度方案，可以看出，每轮都被我们分成了四个阶段，我们将通信完成后的拓扑重构时间放进通信时间，以P11和P21组成的一阶段为例，同时进行一组业务的训练和二组业务的通信，在该阶段的训练和通信任务全部完成后，开始二阶段的任务。这种调度方案相对于不使用时分复用的集合调度方案，在理论上训练效率被大幅提高了。最终整个调度问题可以被我们描述为：在已知业务部署方案和业务信息的情况下，在我们的网络中计算合理的分组方式和相应的 OXC 拓扑，以达到提高训练效率的目的。
 
-To overlap the communication and training processes of different jobs, we divide the jobs into two groups and schedule these groups using time division multiplexing. The example in the lower part of \emph{Figure} \ref{fig:picture6} illustrates our four-phase scheduling scheme. As shown, each round is divided into four phases. We incorporate the topology reconfiguration time, which occurs after communication, into the communication time. Taking the first phase, consisting of P11 and P21, as an example, we simultaneously train one group of jobs while conducting communication for the second group. After the training and communication tasks in this phase are completed, we start the tasks of the second phase. This scheduling scheme significantly enhances training efficiency in theory compared to a collective scheduling scheme that does not utilize time division multiplexing. Ultimately, we decompose the scheduling problem into two subproblems: 1. How to group the jobs; 2. How to calculate the OXC topology for the four phases.
+To overlap the communication and training processes of different jobs, we divide the jobs into two groups and schedule these groups using time division multiplexing. The example in the lower part of \emph{Figure} \ref{fig:picture6} illustrates our four-phase scheduling scheme. As shown, each round is divided into four phases. We incorporate the topology reconfiguration time, which occurs after communication, into the communication time. Taking the first stage, consisting of P11 and P21, as an example, we simultaneously train one group of jobs while conducting communication for the second group. After the training and communication tasks in this phase are completed, we start the tasks of the second phase. This scheduling scheme significantly enhances training efficiency in theory compared to a collective scheduling scheme that does not utilize time division multiplexing. Ultimately, the entire scheduling problem can be described as follows: given the known job deployment scheme and job information, we aim to compute a rational grouping method and the corresponding OXC topology within our network to enhance training efficiency.
 
 
 \begin{figure}
@@ -163,134 +165,223 @@ To overlap the communication and training processes of different jobs, we divide
 
 %为了严谨定量地描述刚才提出的问题，我们建立了一个整数线性规划模型。需要说明的是，模型中会出现非线性部分如参数相乘、求最大值等，但是这些非线性项都是可以线性表示的，但是由于篇幅原因，具体的线性化过程我们省略。
 
-To rigorously and quantitatively describe the previously presented problem, we have developed an integer linear programming (ILP) model. It should be noted that this model contains nonlinear components, such as the multiplication of parameters and maximization; however, these nonlinear terms can be expressed in a linear form. Due to space constraints, we omit the detailed linearization process.
+To describe the previously presented problem rigorously and quantitatively, we have developed an integer linear programming (ILP) model. It should be noted that this model contains nonlinear components, such as the multiplication of parameters and maximization; however, these nonlinear terms can be expressed in a linear form. Due to space constraints, we omit the detailed linearization process.
 
-\begin{equation}
-	\min\{\sum_{t=1}^{2}\sum_{i=1}^{2}(t_{i,t})\}
+\begin{table}[]
+	\caption{Definition of parameters}
+	\label{tbl_1}
+	\begin{tabular}{p{1.5cm}<{\centering}p{6.5cm}}
+		\toprule
+		$G$ & The set of jobs. \\
+		\midrule
+		$V$ & The set of pods.\\
+		\midrule
+		$B$ & The bandwidth capacity of each OXC port.\\
+		\midrule
+		$B_{tor}$ & The bandwidth capacity between ToR and server pool of each pod\\
+		\midrule
+		$N\_link$ & The amount of OXC ports in each pod.\\
+		\midrule
+		$t_{train}^n$ & The training time of job n.\\
+		\midrule
+		$F_n$ & The output traffic size of each GPU belong to job n.\\
+		\midrule
+		$G_{i,n}$ & The amount of GPU in pod i of job n.\\
+		\midrule
+		$E_n$ & The EP parallel degree of job n.\\
+		\midrule
+		$I_n$ & The index of pod where the parameter server of PS job n is deployed.\\
+		\midrule
+		$PN_i^n/AN_i^n$ & The amount of master node of each parallel unit of PS/AllToAll job n in pod i.\\
+		\midrule
+		$U_n$ & The GPU number of each parallel unit of job n.\\
+		\midrule
+		$RM_i^n$ & The boolean parameter that equals 1 if there is a master node of RAR job n in pod i and 0 otherwise.\\
+		\midrule
+		$FI_{i,j}^{n}$ & The size of inter-unit traffic from pod i to pod j of PS job n in push process/other job in collective communication process.\\
+		\midrule
+		$RN_n$ & The set of pod index that master nodes of job n are deployed.\\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\begin{table}[]
+	\caption{Definition of variables}
+	\label{tbl_1}
+	\begin{tabular}{p{1.5cm}<{\centering}p{6.5cm}}
+		\toprule
+		$G_1/G_2$ & The set of jobs in group 1 /group 2.\\
+		\midrule
+		$G_{i,ps}/G_{i,RAR}$ /$G_{i,alltoall}$ & The set of ps/RAR/AllToAll jobs in group i.\\
+		\midrule
+		$t_{k,t}$ & The duration of each stage. Stage index in a round is equal to 2*t + k + 1 and k,t $\in \{0, 1\}$.\\
+		\midrule
+		$D_{i,j}^{k,t}/D_i^{k,t}$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand of pod i in each stage.\\
+		\midrule
+		$P_{i,j}^{n,t}/P_i^{n,t}$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand in pod i of PS job n. If t = 0, job n is in push process and pull process otherwise.\\
+		\midrule
+		$R_{i,j}^n/R_i^n$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand in pod i of RAR job n.\\
+		\midrule
+		$A_{i,j}^n/A_i^n$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand in pod i of AllToAll job n.\\
+		\midrule
+		$L_{i,j}^{k,t}$ & The amount of OXC links between pod i and pod j in each stage.\\
+		\midrule
+		$T_{i,j}^{k,t}$ & The completion time of OXC traffic between pod i and pod j in each stage.\\
+		\midrule
+		$t_{comm}^{k,t}$ & The communication time of each stage.\\
+		\midrule
+		$Ring_{i,j}^n $ & The boolean variable that equals 1 if a OXC link is desirable from pod i to pod j and 0 otherwise.\\
+		\midrule
+	\end{tabular}
+\end{table}
+
+\textbf{Objective:}
+%显然，我们的目的是提高训练效率，因此优化目标设为最小化单轮时长。
+
+Our goal is to enhance training efficiency; thus, the optimization objective is set to minimize the duration of a round.
+
+\begin{equation} \label{eq:1}
+	\text{Minimize} \quad \sum_{t=0}^{1}\sum_{k=0}^{1}t_{k,t}
 \end{equation}
 
-\begin{equation}
+\textbf{Constraints}
+
+\begin{equation} \label{eq:2}
 	\begin{split}
 		\begin{cases}
 			\begin{aligned}
-				& t_{k, comm}^{t} = \max\{\dfrac{D^{k, t}_{i,j}}{B * L^k_{i,j}}, \dfrac{D_i^{k, t}}{B_{tor}}\}\\
-				& D^{k, t}_{i,j} = \sum_{p\in group_{k, ps}}P^{p,t}_{i,j} + \sum_{r\in group_{k, ring}}R^{r}_{i,j} + \sum_{a\in group_{k,alltoall}}A^{a}_{i,j}\\
-				& D^{k, t}_i = \sum_{p\in group_{k, ps}}P^{p,t}_{i} + \sum_{r\in group_{k, ring}}R^{r}_{i} + \sum_{a\in group_{k,alltoall}}A^{a}_{i}\\
+				& D^{k, t}_{i,j} = \sum_{p\in G_{k, ps}}P^{p,t}_{i,j} + \sum_{r\in G_{k, RAR}}R^{r}_{i,j} + \sum_{a\in G_{k,alltoall}}A^{a}_{i,j}\\
+				& D^{k, t}_i = \sum_{p\in G_{k, ps}}P^{p,t}_{i} + \sum_{r\in G_{k, RAR}}R^{r}_{i} + \sum_{a\in G_{k,alltoall}}A^{a}_{i}\\
+				& D_{i,j}^{k,t} = B*L_{i,j}^{k,t}*T_{i,j}^{k,t}\\
+				& t_{comm}^{k,t} = \max\{T_{i,j}^{k,t}, \dfrac{D_i^{k, t}}{B_{tor}}\}\\
 			\end{aligned}
 		\end{cases}\\
 		\begin{aligned}
-			, \forall i, j\in V, i \neq j, \forall k\in \{1,2\}\\
+			, \forall i, j\in V, i \neq j, \forall k,t\in \{0,1\}\\
+		\end{aligned}
+	\end{split}
+\end{equation}
+%公式2描述了每个阶段中网络中OXC内流量和pod内流量的构成，即分别包含了三种业务的流量。由于当前场景下RAR业务流量较高，我们忽略掉RAR业务在集合通信过程中的聚合时间，这对我们的问题没有太大影响。通过找到瓶颈处通信时间，获得该阶段下的集合通信总用时。
+
+\emph{Eq.} \eqref{eq:2} describes the composition of the inter-pod traffic and intra-pod traffic within the network during each phase, specifically comprising three types of traffic. Given that the RAR traffic is relatively high in the current scenario, we neglect the aggregation time of the RAR traffic during the collective communication process, as it has minimal impact on our problem. By identifying the communication time at the bottleneck, we obtain the total duration of the collective communication for that phase.
+
+\begin{equation}\label{eq:3}
+	t_{k,t} = max\{t_{comm}^{k,t}, t_{train}^n\}, \forall n \in J/G_k, \forall t,k \in \{0,1\}
+\end{equation}
+
+\emph{Eq.} \eqref{eq:3} illustrate that the duration of each stage is the maximum of communication time and training time.
+
+\begin{equation}\label{eq:4}
+	\begin{split}
+		\begin{cases}
+			\begin{aligned}
+				& P_{i,I_p}^{n,0} = P_{I_p,i}^{n,1} = PN_i^n * F_n * U_n + FI_{i,I_p}^{n}, \forall n \in G_{1,ps}\cup G_{2,ps}\\
+				& P_{i,m}^{n,0} = P_{m,i}^{n,1} = FI_{i,m}^{n},\forall m \in V ,m\neq i, I_p\\
+				& R_{i,j}^{n} = Ring_{i,j}^n * F_n * U_n + FI_{i,j}^{n}, \forall n \in G_{1,RAR}\cup G_{2,RAR}\\
+				& A_{i,j}^n = AN_i^n * AN_j^n * F_n * U_n + FI_{i,j}^{n}, \forall n \in G_{1,alltoall}\cup G_{2,alltoall}
+			\end{aligned}
+		\end{cases}\\
+		\begin{aligned}
+			,\forall i,j\in V,i\neq j \qquad
+		\end{aligned}
+	\end{split}
+\end{equation}
+\begin{equation}\label{eq:5}
+	\begin{split}
+		\begin{cases}
+			\begin{aligned}
+				& P_{i}^{n,t} = G_{i,n} * F_{n}, \forall n\in G_{k,ps}\\
+				& R_{i}^{n} = 2 * G_{i,n} * F_{n}, \forall n\in G_{k,RAR}\\
+				& A_{i}^{n} = 2 * G_{i,n} * F_{n} * (U_{n} - 1), \forall n\in G_{k,alltoall}\\
+			\end{aligned}
+		\end{cases}\\
+		\begin{aligned}
+			,\forall i\in V,\forall t\in\{0,1\}
 		\end{aligned}
 	\end{split}
 \end{equation}
 
-\begin{equation}
-	t_{k,t} = max\{t_{k, comm}^{t}, t_{train}^i\}, \forall i \in J/group_k, \forall t,k \in \{1,2\}
+\emph{Eq.} \eqref{eq:4} and \eqref{eq:5} show that how we can specify the traffic of each type of job according to the deployment scheme.
+
+\begin{equation}\label{eq:6}
+	\sum_{i=1}^{|V|}(L_{i,j}^{k,t} + L_{j,i}^{k,t}) \leq N\_link
 \end{equation}
 
-\begin{equation}
+\emph{Eq.} \eqref{eq:6} ensures that the number of OXC ports of each pod is limited.
+
+\begin{equation}\label{eq:7}
 	\begin{split}
 		\begin{cases}
-			\begin{aligned}
-				& P_{i}^{p,t} = G_{i,p} * F_{p}, \forall p\in group_{k,ps}\\
-				& R_{i}^{r} = 2 * G_{i,r} * F_{r}, \forall r\in group_{k,ring}\\
-				& A_{i}^{a} = 2 * G_{i,a} * F_{a} * (U_{a} - 1), \forall a\in group_{k,alltoall}\\
-			\end{aligned}
+			\sum_{i=1}^{|V|}Ring_{i,j}^n = \sum_{i=1}^{|V|}Ring_{j,i}^n = RM_i^n\\
+			\sum_{i=1,i\neq m}^{|V|}Ring_{i,j}^n = \sum_{i=1,i\neq m}^{|V|}Ring_{j,i}^n = 0
 		\end{cases}\\
 		\begin{aligned}
-			,\forall i\in P,\forall t\in\{1,2\}
-		\end{aligned}
-	\end{split}
-\end{equation}
-\begin{equation}
-	\begin{split}
-		\begin{cases}
-			\begin{aligned}
-				& P_{i,n_p}^{p,1} = P_{n_p,i}^{p,2} = PN_i * F_i, \forall p \in group_{1,ps}\cup group_{2,ps}\\
-				& R_{i,j}^{r} = Ring_{i,j} * F_i, \forall r \in group_{1,ring}\cup group_{2,ring}\\
-				& A_{i,j}^a = AN_i * AN_j * F_i, \forall a \in group_{1,alltoall}\cup group_{2,alltoall}
-			\end{aligned}
-		\end{cases}\\
-		\begin{aligned}
-			,\forall i,j\in P,i\neq j
+			\forall n\in G_{1,RAR}\cup G_{2,RAR}, \forall m\in RN_n, \forall i,j\in |V|,i\neq j
 		\end{aligned}
 	\end{split}
 \end{equation}
 
-\begin{equation}
-	\begin{cases}
-		\begin{aligned}
-			& group_1 \cap group_2 = \emptyset \\
-			& group_1 \cup group_2 = J \\
-			& group_1 = group_{1,ps} \cup group_{1,ring} \cup group_{1, alltoall}\\
-			& group_2 = group_{2,ps} \cup group_{2,ring} \cup group_{2, alltoall}
-		\end{aligned}
-	\end{cases}
-\end{equation}
+\emph{Eq.} \ref{eq:7} ensures that topology we form for RAR job should be a single ring.
 
 \section{Algorithm}
 \subsection{Overall procedure}
 
-%算法1展示了我们如何采用爬山法迭代求解最优分组。第一行使用公式***来估算每个业务单GPU训练用时，使用业务参数量来估计数据并行业务的通信量，专家并行业务使用batch size和单条数据 token 量估算通信量。第二行初始化A,B两组和邻域解集合NS。第三行到第十三行是爬山法迭代求解的过程，其中第四行到第八行表示迭代解替换为邻域内最优解。由于算法2中GPU资源被完全使用，在每个过程中如果通信时间更长，可以在不影响结果的情况下，按比例减少每个pod的GPU使用量。第九行使用迭代解找出所有邻域解。第十行使用算法2分别计算两个过程的OXC拓扑。第十一行计算两个组业务的训练时间。第十二行计算每个过程的用时，相加得到。
+%算法1展示了我们如何采用爬山法迭代求解最优分组。第1行初始化分组方案，将所有业务放进集合A中，集合B置空。第2-4行计算初始分组下求得的各阶段OXC拓扑，与各阶段用时，将四个阶段的解相加就是我们的待优化初始解。第3行确定相邻阶段间是否需要重构，并计算重构总时间。第5-12行为爬山法多次迭代优化$t_{feasible}$的过程。其中第7行根据上一轮迭代的最佳领域解对应的分组，更新分组。第8-10行遍历所有业务，在第9行交换业务分组，获得对应的领域分组$A_n,B_n$。第10行使用算法2求解对应的各阶段用时。当$t_{feasible}$小于所有领域解时，我们认为已经找到了最优解，此时输出最优分组和对应的 OXC 拓扑。
 
-\emph{Algorithm} \ref{alg:Overall-algorithm} illustrates the iterative approach we employed using the hill-climbing method to determine the optimal solution. \emph{Line} 1 employs formula (1) to estimate the training time per GPU for each job. Here, K is a constant; specifically, K=8 when the model employs recomputation, and K=6 otherwise.$\Phi$ represents the quantity of model parameters.$F_{GPU}$ denotes the computational speed of the GPU.We can utilize the size of parameters to estimate the traffic size of data parallelism job, while expert parallelism job estimate their traffic size based on the number of tokens. \emph{Line} 2 initializes two groups, A and B, along with the neighborhood solution set NS. \emph{Line} 3 - 13 detail the iterative process of the hill-climbing method, where \emph{Line} 4-8 indicate the replacement of the iterative solution with the optimal solution from the neighborhood. Given that GPU resources are fully utilized in \emph{Algorithm} \ref{alg:count_topo}, if communication times are prolonged during each process, the GPU utilization for each pod can be proportionally reduced without affecting the results. \emph{Line} 9 identifies all neighborhood solutions using the iterative solution. \emph{Line} 10 calculates the OXC topology for both processes using \emph{Algorithm} \ref{alg:count_topo}. \emph{Line} 11 computes the training time for the jobs in both groups. Finally, \emph{Line} 12 adds the durations of each process to obtain $t_{round}$.
+\emph{Algorithm} \ref{alg:Overall-algorithm} illustrates our approach to iteratively solving for the optimal grouping using hill-climbing method. In \emph{Line} 1, the grouping scheme is initialized by placing all jobs into set A while leaving set B empty. \emph{Lines} 2-4 compute the OXC topology for each stage under the initial grouping, along with the corresponding durations, such that the sum of the solutions from the four stages yields our initial solution for optimization. \emph{Line} 3 determines whether reconfiguration is needed between adjacent stages and calculates the total reconfiguration time. \emph{Lines} 5-12 detail the iterative process of the hill-climbing method to optimize $t_{feasible}$. Specifically, \emph{Line} 7 updates the grouping based on the best neighborhood solution from the previous iteration. \emph{Lines} 8-10 traverse all jobs, with \emph{Line} 9 involving the swapping of the group of each job to obtain the corresponding neighborhood groupings $A_n$ and $B_n$. \emph{Line} 10 employs \emph{Algorithm} \ref{alg:count_topo} to compute the respective duration for each stage. When \(t_{feasible}\) is less than all neighborhood solutions, we conclude that the optimal solution has been found, at which point the optimal grouping and corresponding OXC topology are output.
+
+\begin{algorithm}
+	\caption{Overall Procedure of Hill Climbing}
+	\label{alg:Overall-algorithm}
+	\LinesNumbered
+	Initial group A = J,B = $\emptyset$\;
+	Calculate corresponding OXC topology $L_{i,j}^{k,t}$ and completion time $t_{k,t}$ of each stage by applying \emph{Algorithm} \ref{alg:count_topo}\;
+	Determine whether reconfiguration existing or not and calculate reconfiguration time $\varepsilon$ in single round\;
+	$t_{feasible}=\sum_{t=0}^1\sum_{k=0}^1t_{k,t}+\varepsilon$\;
+	\While{$t_{feasible} < min\{t_{neighbor}\}$}{
+		$t_{neighbor} = \emptyset$\;
+		update A,B based on best neighbor solution\;
+		\For{n in set G}{
+			Exchange the group of job n and we update $A_n, B_n$\;
+			Apply \emph{Algorithm} \ref{alg:count_topo} to new group and calculate its $L_{i,j}^{k,t}$ and $t_{k,t}$\;
+			Put $\sum_{t=0}^1\sum_{k=0}^1t_{k,t}$ into $t_{neighbor}$
+		}
+	}
+	\textbf{Return} A, B, $t_{feasible}$ and corresponding OXC topology\;
+\end{algorithm}
+
+\subsection{Count OXC topology of each group}
+
+% 算法2用来计算每一组的OXC拓扑。第一行初始化网络中的流量需求，和连接需求布尔值$LB$，这个量在存在从pod i 到pod j 流量的时候等于1，否则等于0。第2-4行遍历所有非RAR业务，这是因为这些业务的流量是固定且可推断的，此时更新流量需求和连接需求布尔值。第5-8行处理所有非RAR业务，这部分业务需要我们为其确定组成环拓扑的方案，我们希望使用算法3以获得增加连接需求最小的方案，这也有利于降低传输时间。第9行初始化OXC拓扑，即先为所有存在流量传输需求的连接分配一条OXC连接。第10行计算各Pod内流量的完成时间。第11-17行为按照完成时间分配OXC连接的过程，其中第12行计算各对pod间的完成时间，找到最大完成时间和相应的pod对，第13-16行说明当增加OXC连接已经无法提高传输效率或是瓶颈处已经无法增加连接时，结束OXC分配，否则为瓶颈处多分配一条OXC连接。最终我们获得了OXC拓扑方案和此方案下的传输时长。
+
+\emph{Algorithm} \ref{alg:count_topo} is designed to compute the OXC topology for each group. \emph{Line} 1 initializes the traffic demand in the network and the boolean value of connection demand, denoted as $LB$, which equals 1 when there is traffic from pod \(i\) to pod \(j\), and 0 otherwise. \emph{Lines} 2-4 traverse all non-RAR jobs, as the traffic for these jobs is fixed and can be inferred; during this process, the traffic demand and connection demand boolean values are updated. \emph{Lines} 5-8 handle all non-RAR jobs, for which we need to determine a topology configuration for the constituent ring topology. We aim to use \emph{Algorithm} \ref{alg:ring} to obtain a schedule that minimizes the increase in connection demand, which also aids in reducing transmission time. \emph{Line} 9 initializes the OXC topology by allocating an OXC connection for all existing traffic demand connections. \emph{Line} 10 calculates the completion time of traffic within each pod. \emph{Lines} 11-17 detail the process of allocating OXC connections based on completion time. In \emph{Line} 12, the completion time for each pair of pods is calculated to identify the maximum completion time and the corresponding pod pair. \emph{Lines} 13-16 describe the conditions under which OXC allocation concludes: either when adding OXC connections no longer enhances transmission efficiency or when no additional connections can be made at the bottleneck, then the allocation should be finished. Otherwise, an additional OXC connection is allocated at the bottleneck. Ultimately, we obtain the OXC topology configuration along with the corresponding transmission duration for this configuration.
 
 \begin{equation}
 	t_{train} = \dfrac{K \times tokens \times \Phi}{F_{GPU} \times efficient}
 \end{equation}
 
 \begin{algorithm}
-	\caption{Overall Procedure of Hill Climbing}
-	\label{alg:Overall-algorithm}
-	\LinesNumbered
-	Predict the communication traffic $F_{oxc,k}^{i,j},F_{pod, k}^i$ of each workload and the iteration duration per GPU \;
-	Initial group A = J,B = $\emptyset$, NS = $\emptyset$\;
-	\While{$\max\{NS\} < t_{round}$ or NS = $\emptyset$}{
-		\If{NS $\neq\emptyset$}{
-			Modify the group A,B by the best neighborhood solution.\;
-			$t_{round} = \max\{NS\}$\;
-			Adjust GPU resource allocation based on communication duration.\;
-		}
-		Obtain a set of neighborhood solutions by exchanging the group of each workload.\;
-		Apply \emph{Algorithm} \ref{alg:count_topo} to get OXC bandwidth $B_{oxc1}^{i,j},B_{oxc2}^{i,j}$ of the two processes\;
-		Calculate training time of each group by $F_{oxc,k}^{i,j},F_{pod,k}^i,B_{oxc1}^{i,j},B_{oxc2}^{i,j},B_{pod}^i$\;
-		Obtain $t_{round}$ of each neighborhood solutions and store them in $NS$\;
-	}
-	\textbf{Return} A, B, $t_{round}$ and corresponding OXC topology\;
-\end{algorithm}
-
-\subsection{Count OXC topology of each group}
-
-% 算法2用来计算每一组的OXC拓扑。第一行预测每个业务的流量大小，然后降序排列至集合G中。第二行以用完网络中所有GPU和平均化业务训练时间的方式为每个业务确定GPU使用量。第三行初始化每个pod内ToR与服务器的流量和ToR与OXC的流量。第四到十九行为部署和连接拓扑的过程。其中第五到八行考虑当业务为PS型时，需要找一个OXC流量最低的pod作为ps。第九行对该业务初始化一个根节点集合用于后续组成环拓扑。第十行到第十五行按照部署流量最少pod上的原则，逐个部署业务的并行单元，如果不能把整个单元部署在该pod下，继续寻找下一个pod，直到该单元被完全部署，其中exc_rate指每个pod的OXC平面带宽与pod内平面带宽的比值。第十六到第十八行考虑业务为ring-AllReduce类时，需要调用算法3来确定成环方案。第二十行到二十一行，完成所有业务的部署后可以获得流量矩阵，并以此指导OXC拓扑的获得。
-
-\emph{Algorithm} \ref{alg:count_topo} is utilized to compute the OXC topology for each group. \emph{Line} 1 predicts the traffic size of each job and puts them in descending order within set $G$. \emph{Line} 2 determines the GPU usage of each job by utilizing all GPUs in the network while averaging the training time of each job. \emph{Line} 3 initializes the traffic between ToR and servers, as well as the traffic between ToR and OXC within each pod. \emph{Line} 4 - 9 detail the process of deploying and connecting topology. Specifically, \emph{Line} 5 - 8 address the scenario where the job is of the PS type, requiring the identification of a pod with the lowest OXC traffic to serve as the PS. \emph{Line} 9 initializes a root node set for this service, which will be used to form a ring topology in subsequent steps. \emph{Line} 10 - 15 deploy the parallel units of the job sequentially, adhering to the principle of deploying on the pod with the minimum traffic. If a complete unit cannot be deployed on this pod, search for the next available pod until the entire unit is successfully deployed; here, exc\_rate represents the ratio of the OXC plane bandwidth to the intra-pod plane bandwidth for each pod. \emph{Line} 16 - 18 account for jobs of the ring-AllReduce type, apply \emph{Algorithm} \ref{alg:ring} to determine the ring formation scheme. Finally, \emph{Line} 20 - 21 indicate that upon completion of the deployment for all jobs, the traffic matrix can be obtained, which will subsequently guide the acquisition of the OXC topology.
-
-\begin{algorithm}
 	\caption{OXC topology algorithm of each group}
 	\label{alg:count_topo}
 	\LinesNumbered
-	Predict the traffic size of each job and Sorting them in descending order in the set $G$.\;
-	Utilizing all GPUs within the network and allocating GPU resources based on the average training duration.\;
-	Initial tor\_traffic,oxc\_traffic = $[0]_{1\times|P|}$\;
-	\For{each job k in set $G$}{
-		\If{job k is PS type}{
-			ps\_node = index of minimum oxc\_traffic\;
-			update oxc\_traffic\;
-		}
-		root\_node = $\emptyset$\;
-		\For{each parallelism unit of job k}{
-			put $argmin_{p}\max\{\text{oxc\_traffic}_p, \dfrac{\text{tor\_traffic}_p}{\text{exc\_rate}}\}$ into root\_node\;
-			\If{The unit cannot be fully placed in root pod}{
-				Identify the next pod with the most abundant bandwidth and put remaining gpu until the unit is fully deployed\;
-			}
-		}
-		\If{job k is RAR type}{
-			Utilizing \emph{Algorithm} \ref{alg:ring} to form a ring connection among the root nodes\;
-		}
+	Initial traffic demand $D_{i,j}^{k,t}/D_i^{k,t}$ and $LB_{i,j}^{k,t}$\;
+	\For{each job n in $G/G_{RAR}$}{
+		Specify traffic demand of job n and update $D_{i,j}^{k,t}/D_i^{k,t}$ and $LB_{i,j}^{k,t}$\;
 	}
-	Obtain traffic size $F_{i,j}$ of this group\;
-	Determine the OXC topology $L_{i,j}$ by $F_{i,j}$\;
-	\textbf{Return} OXC topology\;
+	\For{each job in $G_{RAR}$}{
+		Apply \emph{Algorithm} \ref{alg:ring} to decide how to form a ring\;
+		update $D_{i,j}^{k,t}/D_i^{k,t}$ and $LB_{i,j}^{k,t}$\;
+	}
+	Initial OXC topology $L_{i,j}^{k,t} = LB_{i,j}^{k,t}$\;
+	Calculate $T_{tor}$\;
+	\While{1}{
+		Calculate the completion time of each pair of pods and find the maximum time $T_{OXC}$ and corresponding pod pair $(i_m,j_m)$\;
+		\If{$T_{tor} \geq T_{OXC}$ or there is no available port in $i_m$ or $j_m$}{
+			break
+		}
+		Add a OXC link from pod $i_m$ to pod $j_m$ and update $L_{i,j}^{k,t}$\;
+	}
+	Return $L_{i,j}^{k,t}$, $\max\{T_{tor},T_{OXC}\}$
 \end{algorithm}
 
 \subsection{How to form a ring}
@@ -303,7 +394,7 @@ To rigorously and quantitatively describe the previously presented problem, we h
 	\caption{Ring algorithm}
 	\label{alg:ring}
 	\LinesNumbered
-	Initial Degree = $[0]_{0\times|P|}$\;
+	Initial $In\_degree_i=Out\_degree_i$ = 0\;
 	Calculate Degree and link boolean value $L_{sub}^{i,j}$ in the sub-topology comprising only the root nodes.\;
 	\For{each node n in root\_node}{
 		\While{Degree\_n > 2}{
