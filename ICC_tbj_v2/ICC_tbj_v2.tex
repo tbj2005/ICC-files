@@ -1,0 +1,649 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage[lined,ruled,commentsnumbered,linesnumbered]{algorithm2e}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{pdfpages}
+\usepackage{subfigure}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{subcaption}
+\usepackage{verbatim}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Scheduling Multiple AI models in Optical Data Center Networks with a time-division multiplexing-based Multi-Stage Strategy\\
+%{\footnotesize \textsuperscript{*}Note: Sub-titles are not captured in Xplore and
+%should not be used}
+%\thanks{Identify applicable funding agency here. If none, delete this.}
+}
+
+\author{\IEEEauthorblockN{Binjun Tang, Xiaoliang Chen and Zuqing Zhu\IEEEauthorrefmark{2}}
+	\IEEEauthorblockA{School of Information Science and Technology, University of Science and Technology of China, Hefei, China \\
+		\IEEEauthorrefmark{2}Email: \{zqzhu\}@ieee.org}}
+
+\maketitle
+
+%随着当前训练模型训练集和参数量大小的大幅提升，使用单个GPU训练模型会导致训练时间极长，内存资源无法容纳整个模型的参数等问题，分布式并行训练（如数据并行、专家并行等）被提出了以解决这些问题。随着GPU计算能力的提升和并行技术的成熟，模型训练的通信占比越来越高，训练瓶颈逐渐向通信转化。使用光数据中心网络训练大型分布式模型相较于传统使用电包交换的数据中心网络具有明显优势，被认为是当前大模型训练发展的方向。在这篇文章中，我们考虑了在光数据中心网络中存在多种使用不同并行方案业务的情况，并对网络和业务进行了建模。我们基于时分复用的方式设计了一种简单高效的多阶段业务调度方案，用以联合调度若干业务的集合通信和训练过程。经过仿真，我们的调度方案相对于不采用时分复用的方案，平均性能提升了。。。
+\begin{abstract}
+With the significant increase in the size of training datasets and the number of parameters in current models, training models on a single GPU has led to prolonged training times and memory constraints that hinder the accommodation of the entire model's parameters. To address these challenges, distributed parallel training methods, such as data parallelism (DP) and expert parallelism (DP), have been proposed. As the improvement of GPU computing capabilities and maturation of parallel technologies, the proportion of communication during model training has risen, gradually shifting the training bottleneck towards communication. Training large distributed models using optical data center networks (ODCN) presents clear advantages over traditional data center networks based on electrical packet switched (EPS), positioning it as a promising direction for the development of large model training.
+
+In this paper, we consider scenarios in which various jobs employing different parallelization schemes coexist within an optical data center network, and we model both the network and the jobs. A simple and efficient multi-stage job scheduling scheme based on time-division multiplexing is proposed to schedule the communication and training processes for multiple jobs jointly. Simulation results indicate that our scheduling scheme, compared to a non-time-division multiplexing approach, achieves an average performance improvement of…
+\end{abstract}
+
+\begin{IEEEkeywords}
+	ODCN, distributed training, parallelism, collective communication, time-division multiplexing, network schedule
+\end{IEEEkeywords}
+
+\section{Introduction}
+%1. 随着AI的发展，大语言模型的参数量和训练集已经到达令人吃惊的规模，以GPT4为例，其参数量大小为1800B，训练数据集包含约13万亿个token。单个GPU的方案在做模型训练时会遇到训练时间极长，且内存无法容纳整个模型的问题，因此目前的AI训练常常在集群（如Meta、Colossus）中使用分布式训练方案，将模型和训练任务分摊给集群中的每个 GPU。随着单个 GPU 计算能力的提高，在集群中训练AI模型的速度提升日渐缓慢，GPU之间的通信延时占比越来越高逐渐成为训练过程中的瓶颈。如图1 所示，传统的数据中心网络用于训练集群中的模型时使用包交换，其网络拓扑固定，这会导致pod间的带宽分配不够灵活，无法满足倾斜变化流量的需求。不仅如此，传统网络中采用ECMP协议，在训练时会出现哈希极化现象，这会大幅提高流量的倾斜度，并提高训练时间。而在图1(b)中的光数据中心网络中由于其可以灵活改变网络拓扑，从而适应不同倾斜方式的流量，且由于使用电路交换而非包交换，不会因为出现多条路径导致哈希极化现象的产生，因此更加适配集群中的AI模型训练。
+
+With the advancement of artificial intelligence (AI), the parameter scale and training dataset of large language model (LLM) have reached astonishing sizes. For instance, GPT-4 has a parameter count of 1.8 trillion and is trained on a dataset comprising approximately 13 trillion tokens \cite{GPT4}.Training models using a single GPU often encounters challenges such as excessively long training times and insufficient memory capacity to accommodate the entire model. Consequently, current AI training often employs distributed training schemes \cite{surveyDML} within clusters (such as Meta \cite{Meta} and Colossus), distributing both models and training tasks across each GPU in the cluster. As the computational speed of individual GPU increases, the rate of improvement in training speed for AI models within clusters has gradually slowed, with the proportion of collective communication latency between GPUs increasing in iteration time and becoming a bottleneck in the training process progressively.
+
+As illustrated in \emph{Figure} \ref{fig:sub1}, traditional data center networks utilize EPS for model training in clusters, resulting in inflexible bandwidth allocation between pods that fails to meet the demands of time-varying and skewed traffic. Furthermore, the use of Equal-Cost Multi-Path (ECMP) protocol in traditional networks can lead to hash polarization during training \cite{HPN}, significantly increasing traffic skew and prolonging training times. In contrast, in ODCN illustrated in \emph{Figure} \ref{fig:sub2}, the flexibility to adapt the network topology enables it to accommodate various traffic patterns effectively. Additionally, by employing circuit switching instead of packet switching, this approach eliminates the risk of hash polarization arising from the existence of multiple paths. Consequently, this network design proves to be more suitable for AI model training within clusters.
+
+%2. 在使用分布式方式训练模型时，需要将数据集和模型分配给每个GPU以并行训练，常用的并行方案有数据并行、专家并行等。在实际数据中心网络训练模型的过程中，常常会同时出现多种并行方案的训练任务。
+
+When employing distributed methods for training models, it is necessary to allocate the dataset and model to each GPU for parallel training. Common parallelization strategies include DP and EP. In practical data center networks, various parallel training tasks often occur simultaneously.
+
+%在本文中，我们为多种并行方案业务的迭代过程进行了建模，并希望对这些业务的训练和集合通信过程进行联合调度。由于ODCN中拓扑的重构延时较长，在百微秒级，因此我们还需要调度重构时间和重构方案，此时问题的复杂度相对于传统数据中心网络会大幅提高。如果让所有业务在同一段时间内同时开始训练，在所有业务完成训练后同时开始进行集合通信，并以此方式循环，此时我们可以简单地获得业务调度放案和OXC拓扑。但是该方案将计算和训练时间完全分开，网络的资源没有被完全使用，因此在通信占比较大的情况下，该方案获得的结果往往并不好。为了迅速且高效地调度网络中的多种AI训练任务，我们提出了一种基于时分复用的多阶段算法，用于联合调度各业务的训练和通信过程，通过重叠业务之间的通信和训练时间和合理的OXC拓扑调度，来达到提高训练效率的目的。
+
+In this paper, we model the iterative process of jobs employing different parallel scheme and aim to jointly schedule the training and collective communication processes of these jobs. Given that the topology reconfiguration delay in the ODCN is significant, on the order of hundreds of microseconds \cite{Zerwas2021}, we must also consider the scheduling of reconfiguration time and schemes, which notably increases the complexity of the problem compared to traditional data center networks. If all jobs start their computing process simultaneously and then proceed to collective communication only after completing their training, this cyclical approach would allow for a straightforward derivation of job scheduling plans and Optical Cross-Connect (OXC) topology. However, this strategy entirely separates computation and training times, resulting in underutilization of network resources; thus, it often yields suboptimal results in scenarios where communication demands are high.To rapidly and efficiently schedule various AI training tasks within the network, we propose a multi-stage algorithm based on time-division multiplexing. This algorithm is designed to jointly schedule the training and communication processes of different jobs by overlapping the communication and training times between jobs and obtaining OXC topology reconfiguration scheme of each stage. 
+
+%这篇文章的贡献为:
+The contribution of this paper is as follow:
+
+\begin{itemize}
+	%1.在我们考虑的网络模型中，我们总结了三类业务的训练模式，并说明每个业务都可以看作四个阶段的循环；
+	
+	\item In the network model under consideration, we categorize the training patterns of three types of jobs and illustrate that each job can be viewed as a cyclical process comprising four distinct stages.
+	
+	%2.对这些业务提出了一种基于时分复用的四阶段策略，旨在以多项式时间复杂度内获得易于调度且高效的方案；
+	
+	\item A time-division multiplexing-based four-stage strategy is proposed for these jobs, aiming to achieve an easily schedulable and efficient solution within polynomial time complexity.
+	
+	%3.经过我们的仿真证明，该方案相对于不使用时分复用的集合调度策略，训练效率提升了 。
+	
+	\item Our simulations demonstrate that this approach improves training efficiency by *** compared to aggregation scheduling strategies that do not employ time-division multiplexing.
+\end{itemize}
+
+\section{Problem Description}
+
+\subsection{Network model}
+
+\begin{figure}[htbp]
+	\centering
+	\begin{subfigure}
+		\centering
+		\includegraphics[width=\linewidth]{./figure/picture1.pdf}
+		\caption{Traditional data center network}
+		\label{fig:sub1}
+	\end{subfigure}
+	\begin{subfigure}
+		\centering
+		\includegraphics[width=\linewidth]{./figure/picture2.pdf}
+		\caption{Optical data center network}
+		\label{fig:sub2}
+	\end{subfigure}
+	\label{fig:total}
+\end{figure}
+
+%图1 (a) 表示了我们考虑的三层clos网络架构，主要由OCS层，ToR层和服务器层组成。OCS层用于完成ToR间的光互联通信，由一个或多个 OXC 组成，与包交换不同，OCS 层在通信前需要提前在端口间建立一条一对一的连接，在通信需求产生后，跨 pod 流量会流量通过该连接从源端口进入目的端口。OCS层的每条连接都是半双工通信，也就是说在同一时刻，一条连接只能提供一个方向的带宽。由于技术原因，OXC连接拓扑的重构延时在百微秒级，在模型训练时是无法忽视的。ToR层由每个pod的交换机组成，每个架顶交换机都连接了若干OXC端口用于跨 pod 流量和 pod 内流量的通信。服务器层由若干pod下的GPU组成，用以执行训练任务。
+
+\emph{Figure} \ref{fig:sub2} illustrates the three-layer Clos network architecture under consideration, which primarily consists of the Optical Circuit Switching (OCS) layer, the Top-of-Rack (ToR) layer, and the server layer. The OCS layer is responsible for facilitating optical interconnection communication between ToR switches, comprising one or more OXCs. Unlike packet switching, the OCS layer requires the establishment of a one-to-one connection between ports prior to communication. Once a communication demand arises, inter-pod traffic is transmitted through this connection from the source port to the destination port. Each connection in the OCS layer operates in half-duplex mode, meaning that at any given time, a connection can provide bandwidth in only one direction. Due to technical constraints, the reconfiguration latency of the OXC connection topology is on the order of hundreds of microseconds, which cannot be overlooked during model training. The ToR layer consists of switches for each pod, with each top-of-rack switch connected to several OXC ports to facilitate communication for both inter-pod and intra-pod traffic. The server layer comprises GPUs across multiple pods, which are utilized to execute training tasks.
+
+%在该网络模型中，我们已知网络中的每个阶段流量需求$D_{i,j}^{k,t}$、ToR 层 与 server 层间的带宽 $B_{i}$ 与各 ToR 分配的 OXC 端口数 $N_{oxc}$ 及各端口带宽 $B_{oxc}$，并据此计算各 pod 对之间分配的 OXC 连接数目，与该阶段的通信时长。
+
+In this network model, we have the known traffic demand for each stage in the network, denoted as \( D_{i,j}^{k,t} \), the bandwidth between the ToR layer and the server layer, represented as \( B_{i} \), the number of OXC ports allocated to each ToR, denoted as \( N_{oxc} \), and the bandwidth of each port, represented as \( B_{oxc} \). Based on this information, we calculate the number of OXC connections allocated between each pod and the corresponding communication duration for that stage.
+
+\subsection{Job model}
+%在本文中，我们考虑在上述网络模型中服务三种使用不同经典集合通信方案的业务：PS类，Ring-AllReduce类和AllToAll类。前两种业务使用数据并行方案，AllToAll业务使用专家并行方案。
+
+In this paper, we consider serving three types of jobs within the aforementioned network model, each utilizing different classical collective communication schemes: Parameter Server (PS) class, Ring-AllReduce (RAR) class, and AllToAll class. The first two types of jobs employ data parallelism, while the AllToAll job utilizes expert parallelism.
+
+\begin{figure}
+	\centering
+	\includegraphics[width=1\linewidth]{figure/picture3}
+	\caption{Training process of DP and EP}
+	\label{fig:picture3}
+\end{figure}
+
+\begin{figure}
+	\centering
+	\includegraphics[width=1\linewidth]{figure/picture5}
+	\caption{PS architecture and RAR architecture}
+	\label{fig:picture5}
+\end{figure}
+
+\begin{itemize}
+	% 数据并行：如图3上半部分表示，均分数据集，每个GPU存储了模型的所有参数，并各自训练属于它的一份数据集。在完成本轮训练后，需要使用随机梯度下降算法同步各GPU中的参数，然后使用同步后的参数进入下一轮的训练。在参数同步过程中，GPU间常用的集合通信方案有两种，分别为PS方案和AllReduce方案。
+	
+	\item Data parallelism: As shown in the upper half of \emph{Figure} \ref{fig:picture3}, the dataset is evenly divided, and each GPU storing all parameters of the model and training its respective subset of the dataset. After completing a training process, it is necessary to synchronize the parameters across all GPUs using the Stochastic Gradient Descent (SGD) algorithm \cite{SGD2010}, after which the synchronized parameters are used for the next training process. During the parameter synchronization process, two commonly used collective communication schemes among GPUs are the PS scheme and the AllReduce scheme.
+	
+	\begin{itemize}
+		% PS：图四左边展示了PS架构怎样进行集合通信。使用参数服务器来同步各GPU间的参数，在各worker完成各自的训练后，将它们的参数传输给作为参数服务器的GPU，完成传输后在参数服务器上进行参数的聚合和更新，聚合后再将更新后的数据组播给各worker。
+		
+		\item PS: The left side of \emph{Figure} \ref{fig:picture5} illustrates how the PS architecture facilitates collective communication. The parameter server is employed to synchronize parameters among GPUs. After each worker completes its training process, the parameters are transmitted to the GPU designated as the parameter server. Following the completion of this transmission, parameter aggregation and updating occur on the parameter server. Subsequently, the updated data is multicast to all workers.
+		
+		% AllReduce：参数的聚合和更新操作本质上就是一种全规约，有多种算法可以在不使用参数服务器的情况下实现AllReduce操作。其中，ring-AllReduce算法是目前最常用的方案，该方案需要节点之间组成一个环拓扑，具体的通信过程如图四所示。除此之外，多层ring-AllReduce算法、双二叉树算法等也在被实现并广泛使用。但必须要说的是，ring-AllReduce是这类集合通信算法中最经典最常用的算法。
+		
+		\item AllReduce: The aggregation and update operations of parameters essentially constitute a type of allreduce. Various algorithms can achieve AllReduce operations without the use of a parameter server. Among these, the RAR algorithm is currently the most commonly used scheme, which requires the nodes to form a ring topology, as illustrated in right part of \emph{Figure} \ref{fig:picture5}. Additionally,  hierarchical RAR algorithm \cite{jia2018highlyscalabledeeplearning} and double binary tree algorithm \cite{Tree} are also being implemented and widely used. However, it is important to note that RAR is the most classic and commonly used algorithm among this class of collective communication algorithms.
+	\end{itemize}
+	
+	%专家并行：由于模型参数容量的爆炸式增长，单GPU已经无法存储大模型的所有参数。如图四右侧表示，专家并行将模型分为不同专家，各GPU存储一个专家的参数，训练数据根据其特征进入不同的专家。这种方案不仅可以大幅提升训练效率，还可以大幅降低单GPU参数存储量。与之相对的是它复杂的AllToAll集合通信需求，在每对专家之间都需要互相交换token以使其进入相应的专家。
+	\item EP \cite{MoE}: Due to the explosive growth of model parameter capacity, single GPU can no longer accommodate all parameters of large models. As shown on the right side of \emph{Figure} \ref{fig:picture5}, expert parallelism addresses this challenge by partitioning the model into distinct experts, with each GPU storing the parameters of a specific expert. Training data is routed to different experts according to its characteristics. This approach not only significantly enhances training efficiency but also considerably reduces the parameter storage requirements for individual GPU. However, it introduces complex AllToAll collective communication demands, as tokens must be exchanged between every pair of experts to access to the according expert. 
+\end{itemize}
+
+%根据三类业务的训练特征，我们可以得出它们在每次迭代的流量大小和拓扑需求复杂度的大小关系。由于使用DP的业务需要更新整个模型参数，而使用EP的业务只需要传输单次迭代使用的数据，因此集合通信流量排序为：PS>RAR>AllToAll。相反的，就拓扑需求复杂度而言，AllToAll业务最高，其次为RAR，最后为PS。RAR比PS更复杂的原因是在确定业务GPU部署方式后，PS型业务只有一种拓扑，但RAR业务的成环方式是不确定的。
+
+Based on the training characteristics of the three types of jobs, we can derive the relationships between the size of traffic and the complexity of topology requirements for each iteration. Jobs utilizing DP necessitate updating the entire model parameters, whereas jobs employing EP only require the transmission of data used for an iteration. Consequently, the ranking of collective communication traffic is as follows: PS $>$ RAR $>$ AllToAll. Conversely, regarding the complexity of topology requirements, AllToAll services exhibit the highest complexity, followed by RAR, and finally PS. The reason RAR jobs are more complex than PS jobs is that, after determining the deployment scheme of GPUs, the PS jobs have only one topology, while the ring formation for RAR jobs remains uncertain.
+
+\subsection{Time division multiplexing scheduling}
+% 对于RAR业务和AllToAll业务，迭代过程可以简单的分成训练过程和集合通信过程两个阶段，但是PS在我们的问题中不能这样处理。在图5的上半部分，我们解释了原因，我们希望在每个阶段中的流量需求没有突然的变化，这样有利于我们OXC拓扑的调度。可以看到在PS业务完成聚合后，流量需求从push转为pull，那么OXC拓扑可能无法适应这种变化。相反的，虽然RAR的集合通信过程虽然也有聚合过程，但是流量需求都是不变的。正因如此，我们将PS业务的每次迭代分成四个阶段。由于两次RAR业务或AllToAll业务的迭代也是四个阶段，因此四个阶段完全可以表示三种业务的迭代过程，并且每个阶段的流量需求都是固定的。
+
+For RAR and AllToAll jobs, the iterative process can be straightforwardly divided into two stages: the training process and the collective communication process. However, in the case of PS, we cannot treat it in this manner. In the upper part of \emph{Figure} \ref{fig:picture6}, we explain the reasoning. We desire that the traffic demands within each stage do not experience abrupt changes, which would facilitate the scheduling of our OXC topology. It is evident that after the PS service completes aggregation, the traffic demand shifts from push to pull, which may not be accommodated by the OXC topology. On the contrary, although the collective communication process of RAR also involves aggregation, the traffic demand remains unchanged. Consequently, we divide each iteration of the PS service into four stages: local training,push,aggregation and pull. Since the iterations for twice of RAR and AllToAll jobs also consist of four stages, these four stages can adequately represent the iterative processes of all three jobs, with fixed traffic demands in each stage.
+
+%为了重叠不同业务的通信和训练过程，我们将业务分成两组，并使用时分复用的方式调度这两组业务。图五下半部分的例子说明了我们的四阶段调度方案，可以看出，每轮都被我们分成了四个阶段，我们将通信完成后的拓扑重构时间放进通信时间，以P11和P21组成的一阶段为例，同时进行一组业务的训练和二组业务的通信，在该阶段的训练和通信任务全部完成后，开始二阶段的任务。这种调度方案相对于不使用时分复用的集合调度方案，在理论上训练效率被大幅提高了。最终整个调度问题可以被我们描述为：在已知业务部署方案和业务信息的情况下，在我们的网络中计算合理的分组方式和相应的 OXC 拓扑，以达到提高训练效率的目的。
+
+To overlap the communication and training processes of different jobs, we divide the jobs into two groups and schedule these groups using time division multiplexing. The example in the lower part of \emph{Figure} \ref{fig:picture6} illustrates our four-phase scheduling scheme. As shown, each round is divided into four phases. We incorporate the topology reconfiguration time, which occurs after communication, into the communication time. Taking the first stage, consisting of P11 and P21, as an example, we simultaneously train one group of jobs while conducting communication for the second group. After the training and communication tasks in this phase are completed, we start the tasks of the second phase. This scheduling scheme significantly enhances training efficiency in theory compared to a collective scheduling scheme that does not utilize time division multiplexing. Ultimately, the entire scheduling problem can be described as follows: given the known job deployment scheme and job information, we aim to compute a rational grouping method and the corresponding OXC topology within our network to enhance training efficiency.
+
+
+\begin{figure}
+	\centering
+	\includegraphics[width=1\linewidth]{figure/picture6}
+	\caption{}
+	\label{fig:picture6}
+\end{figure}
+
+\subsection{ILP}
+
+%为了严谨定量地描述刚才提出的问题，我们建立了一个整数线性规划模型。需要说明的是，模型中会出现非线性部分如参数相乘、求最大值等，但是这些非线性项都是可以线性表示的，但是由于篇幅原因，具体的线性化过程我们省略。
+
+To describe the previously presented problem rigorously and quantitatively, we have developed an integer linear programming (ILP) model. It should be noted that this model contains nonlinear components, such as the multiplication of parameters and maximization; however, these nonlinear terms can be expressed in a linear form. Due to space constraints, we omit the detailed linearization process.
+
+\begin{table}[]
+	\caption{Definition of parameters}
+	\label{tbl_1}
+	\begin{tabular}{p{1.5cm}<{\centering}p{6.5cm}}
+		\toprule
+		$G$ & The set of jobs. \\
+		\midrule
+		$V$ & The set of pods.\\
+		\midrule
+		$B$ & The bandwidth capacity of each OXC port.\\
+		\midrule
+		$B_{tor}$ & The bandwidth capacity between ToR and server pool of each pod\\
+		\midrule
+		$N\_link$ & The amount of OXC ports in each pod.\\
+		\midrule
+		$t_{train}^n$ & The training time of job n.\\
+		\midrule
+		$F_n$ & The output traffic size of each GPU belong to job n.\\
+		\midrule
+		$G_{i,n}$ & The amount of GPU in pod i of job n.\\
+		\midrule
+		$E_n$ & The EP parallel degree of job n.\\
+		\midrule
+		$I_n$ & The index of pod where the parameter server of PS job n is deployed.\\
+		\midrule
+		$PN_i^n/AN_i^n$ & The amount of master node of each parallel unit of PS/AllToAll job n in pod i.\\
+		\midrule
+		$U_n$ & The GPU number of each parallel unit of job n.\\
+		\midrule
+		$RM_i^n$ & The boolean parameter that equals 1 if there is a master node of RAR job n in pod i and 0 otherwise.\\
+		\midrule
+		$FI_{i,j}^{n}$ & The size of inter-unit traffic from pod i to pod j of PS job n in push process/other job in collective communication process.\\
+		\midrule
+		$RN_n$ & The set of pod index that master nodes of job n are deployed.\\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\begin{table}[]
+	\caption{Definition of variables}
+	\label{tbl_1}
+	\begin{tabular}{p{1.5cm}<{\centering}p{6.5cm}}
+		\toprule
+		$G_1/G_2$ & The set of jobs in group 1 /group 2.\\
+		\midrule
+		$G_{i,ps}/G_{i,RAR}$ /$G_{i,alltoall}$ & The set of ps/RAR/AllToAll jobs in group i.\\
+		\midrule
+		$t_{k,t}$ & The duration of each stage. Stage index in a round is equal to 2*t + k + 1 and k,t $\in \{0, 1\}$.\\
+		\midrule
+		$D_{i,j}^{k,t}/D_i^{k,t}$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand of pod i in each stage.\\
+		\midrule
+		$P_{i,j}^{n,t}/P_i^{n,t}$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand in pod i of PS job n. If t = 0, job n is in push process and pull process otherwise.\\
+		\midrule
+		$R_{i,j}^n/R_i^n$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand in pod i of RAR job n.\\
+		\midrule
+		$A_{i,j}^n/A_i^n$ & The intra-pod traffic demand from pod i to pod j/The inter-pod traffic demand in pod i of AllToAll job n.\\
+		\midrule
+		$L_{i,j}^{k,t}$ & The amount of OXC links between pod i and pod j in each stage.\\
+		\midrule
+		$T_{i,j}^{k,t}$ & The completion time of OXC traffic between pod i and pod j in each stage.\\
+		\midrule
+		$t_{comm}^{k,t}$ & The communication time of each stage.\\
+		\midrule
+		$Ring_{i,j}^n $ & The boolean variable that equals 1 if a OXC link is desirable from pod i to pod j and 0 otherwise.\\
+		\midrule
+	\end{tabular}
+\end{table}
+
+\textbf{Objective:}
+%显然，我们的目的是提高训练效率，因此优化目标设为最小化单轮时长。
+
+Our goal is to enhance training efficiency; thus, the optimization objective is set to minimize the duration of a round.
+
+\begin{equation} \label{eq:1}
+	\text{Minimize} \quad \sum_{t=0}^{1}\sum_{k=0}^{1}t_{k,t}
+\end{equation}
+
+\textbf{Constraints}
+
+\begin{equation} \label{eq:2}
+	\begin{split}
+		\begin{cases}
+			\begin{aligned}
+				& D^{k, t}_{i,j} = \sum_{p\in G_{k, ps}}P^{p,t}_{i,j} + \sum_{r\in G_{k, RAR}}R^{r}_{i,j} + \sum_{a\in G_{k,alltoall}}A^{a}_{i,j}\\
+				& D^{k, t}_i = \sum_{p\in G_{k, ps}}P^{p,t}_{i} + \sum_{r\in G_{k, RAR}}R^{r}_{i} + \sum_{a\in G_{k,alltoall}}A^{a}_{i}\\
+				& D_{i,j}^{k,t} = B*L_{i,j}^{k,t}*T_{i,j}^{k,t}\\
+				& t_{comm}^{k,t} = \max\{T_{i,j}^{k,t}, \dfrac{D_i^{k, t}}{B_{tor}}\}\\
+			\end{aligned}
+		\end{cases}\\
+		\begin{aligned}
+			, \forall i, j\in V, i \neq j, \forall k,t\in \{0,1\}\\
+		\end{aligned}
+	\end{split}
+\end{equation}
+%公式2描述了每个阶段中网络中OXC内流量和pod内流量的构成，即分别包含了三种业务的流量。由于当前场景下RAR业务流量较高，我们忽略掉RAR业务在集合通信过程中的聚合时间，这对我们的问题没有太大影响。通过找到瓶颈处通信时间，获得该阶段下的集合通信总用时。
+
+\emph{Eq.} \eqref{eq:2} describes the composition of the inter-pod traffic and intra-pod traffic within the network during each phase, specifically comprising three types of traffic. Given that the RAR traffic is relatively high in the current scenario, we neglect the aggregation time of the RAR traffic during the collective communication process, as it has minimal impact on our problem. By identifying the communication time at the bottleneck, we obtain the total duration of the collective communication for that phase.
+
+\begin{equation}\label{eq:3}
+	t_{k,t} = max\{t_{comm}^{k,t}, t_{train}^n\}, \forall n \in J/G_k, \forall t,k \in \{0,1\}
+\end{equation}
+
+\emph{Eq.} \eqref{eq:3} illustrate that the duration of each stage is the maximum of communication time and training time.
+
+\begin{equation}\label{eq:4}
+	\begin{split}
+		\begin{cases}
+			\begin{aligned}
+				& P_{i,I_p}^{n,0} = P_{I_p,i}^{n,1} = PN_i^n * F_n * U_n + FI_{i,I_p}^{n}, \forall n \in G_{1,ps}\cup G_{2,ps}\\
+				& P_{i,m}^{n,0} = P_{m,i}^{n,1} = FI_{i,m}^{n},\forall m \in V ,m\neq i, I_p\\
+				& R_{i,j}^{n} = Ring_{i,j}^n * F_n * U_n + FI_{i,j}^{n}, \forall n \in G_{1,RAR}\cup G_{2,RAR}\\
+				& A_{i,j}^n = AN_i^n * AN_j^n * F_n * U_n + FI_{i,j}^{n}, \forall n \in G_{1,alltoall}\cup G_{2,alltoall}
+			\end{aligned}
+		\end{cases}\\
+		\begin{aligned}
+			,\forall i,j\in V,i\neq j \qquad
+		\end{aligned}
+	\end{split}
+\end{equation}
+\begin{equation}\label{eq:5}
+	\begin{split}
+		\begin{cases}
+			\begin{aligned}
+				& P_{i}^{n,t} = G_{i,n} * F_{n}, \forall n\in G_{k,ps}\\
+				& R_{i}^{n} = 2 * G_{i,n} * F_{n}, \forall n\in G_{k,RAR}\\
+				& A_{i}^{n} = 2 * G_{i,n} * F_{n} * (U_{n} - 1), \forall n\in G_{k,alltoall}\\
+			\end{aligned}
+		\end{cases}\\
+		\begin{aligned}
+			,\forall i\in V,\forall t\in\{0,1\}
+		\end{aligned}
+	\end{split}
+\end{equation}
+
+\emph{Eq.} \eqref{eq:4} and \eqref{eq:5} show that how we can specify the traffic of each type of job according to the deployment scheme.
+
+\begin{equation}\label{eq:6}
+	\sum_{i=1}^{|V|}(L_{i,j}^{k,t} + L_{j,i}^{k,t}) \leq N\_link
+\end{equation}
+
+\emph{Eq.} \eqref{eq:6} ensures that the number of OXC ports of each pod is limited.
+
+\begin{equation}\label{eq:7}
+	\begin{split}
+		\begin{cases}
+			\sum_{i=1}^{|V|}Ring_{i,j}^n = \sum_{i=1}^{|V|}Ring_{j,i}^n = RM_i^n\\
+			\sum_{i=1,i\neq m}^{|V|}Ring_{i,j}^n = \sum_{i=1,i\neq m}^{|V|}Ring_{j,i}^n = 0
+		\end{cases}\\
+		\begin{aligned}
+			\forall n\in G_{1,RAR}\cup G_{2,RAR}, \forall m\in RN_n, \forall i,j\in |V|,i\neq j
+		\end{aligned}
+	\end{split}
+\end{equation}
+
+\emph{Eq.} \ref{eq:7} ensures that topology we form for RAR job should be a single ring.
+
+\section{Algorithm}
+\subsection{Overall procedure}
+
+%算法1展示了我们如何采用爬山法迭代求解最优分组。第1行初始化分组方案，将所有业务放进集合A中，集合B置空。第2-4行计算初始分组下求得的各阶段OXC拓扑，与各阶段用时，将四个阶段的解相加就是我们的待优化初始解。第3行确定相邻阶段间是否需要重构，并计算重构总时间。第5-12行为爬山法多次迭代优化$t_{feasible}$的过程。其中第7行根据上一轮迭代的最佳领域解对应的分组，更新分组。第8-10行遍历所有业务，在第9行交换业务分组，获得对应的领域分组$A_n,B_n$。第10行使用算法2求解对应的各阶段用时。当$t_{feasible}$小于所有领域解时，我们认为已经找到了最优解，此时输出最优分组和对应的 OXC 拓扑。
+
+\emph{Algorithm} \ref{alg:Overall-algorithm} illustrates our approach to iteratively solving for the optimal grouping using hill-climbing method. In \emph{Line} 1, the grouping scheme is initialized by placing all jobs into set A while leaving set B empty. \emph{Lines} 2-4 compute the OXC topology for each stage under the initial grouping, along with the corresponding durations, such that the sum of the solutions from the four stages yields our initial solution for optimization. \emph{Line} 3 determines whether reconfiguration is needed between adjacent stages and calculates the total reconfiguration time. \emph{Lines} 5-12 detail the iterative process of the hill-climbing method to optimize $t_{feasible}$. Specifically, \emph{Line} 7 updates the grouping based on the best neighborhood solution from the previous iteration. \emph{Lines} 8-10 traverse all jobs, with \emph{Line} 9 involving the swapping of the group of each job to obtain the corresponding neighborhood groupings $A_n$ and $B_n$. \emph{Line} 10 employs \emph{Algorithm} \ref{alg:count_topo} to compute the respective duration for each stage. When \(t_{feasible}\) is less than all neighborhood solutions, we conclude that the optimal solution has been found, at which point the optimal grouping and corresponding OXC topology are output.
+
+\begin{algorithm}
+	\caption{Overall Procedure of Hill Climbing}
+	\label{alg:Overall-algorithm}
+	\LinesNumbered
+	Initial group A = J,B = $\emptyset$\;
+	Calculate corresponding OXC topology $L_{i,j}^{k,t}$ and completion time $t_{k,t}$ of each stage by applying \emph{Algorithm} \ref{alg:count_topo}\;
+	Determine whether reconfiguration existing or not and calculate reconfiguration time $\varepsilon$ in single round\;
+	$t_{feasible}=\sum_{t=0}^1\sum_{k=0}^1t_{k,t}+\varepsilon$\;
+	\While{$t_{feasible} < min\{t_{neighbor}\}$}{
+		$t_{neighbor} = \emptyset$\;
+		update A,B based on best neighbor solution\;
+		\For{n in set G}{
+			Exchange the group of job n and we update $A_n, B_n$\;
+			Apply \emph{Algorithm} \ref{alg:count_topo} to new group and calculate its $L_{i,j}^{k,t}$ and $t_{k,t}$\;
+			Put $\sum_{t=0}^1\sum_{k=0}^1t_{k,t}$ into $t_{neighbor}$
+		}
+	}
+	\textbf{Return} A, B, $t_{feasible}$ and corresponding OXC topology\;
+\end{algorithm}
+
+\subsection{Count OXC topology of each group}
+
+% 算法2用来计算每一组的OXC拓扑。第一行初始化网络中的流量需求，和连接需求布尔值$LB$，这个量在存在从pod i 到pod j 流量的时候等于1，否则等于0。第2-4行遍历所有非RAR业务，这是因为这些业务的流量是固定且可推断的，此时更新流量需求和连接需求布尔值。第5-8行处理所有非RAR业务，这部分业务需要我们为其确定组成环拓扑的方案，我们希望使用算法3以获得增加连接需求最小的方案，这也有利于降低传输时间。第9行初始化OXC拓扑，即先为所有存在流量传输需求的连接分配一条OXC连接。第10行计算各Pod内流量的完成时间。第11-17行为按照完成时间分配OXC连接的过程，其中第12行计算各对pod间的完成时间，找到最大完成时间和相应的pod对，第13-16行说明当增加OXC连接已经无法提高传输效率或是瓶颈处已经无法增加连接时，结束OXC分配，否则为瓶颈处多分配一条OXC连接。最终我们获得了OXC拓扑方案和此方案下的传输时长。
+
+\emph{Algorithm} \ref{alg:count_topo} is designed to compute the OXC topology for each group. \emph{Line} 1 initializes the traffic demand in the network and the boolean value of connection demand, denoted as $LB$, which equals 1 when there is traffic from pod \(i\) to pod \(j\), and 0 otherwise. \emph{Lines} 2-4 traverse all non-RAR jobs, as the traffic for these jobs is fixed and can be inferred; during this process, the traffic demand and connection demand boolean values are updated. \emph{Lines} 5-8 handle all non-RAR jobs, for which we need to determine a topology configuration for the constituent ring topology. We aim to use \emph{Algorithm} \ref{alg:ring} to obtain a schedule that minimizes the increase in connection demand, which also aids in reducing transmission time. \emph{Line} 9 initializes the OXC topology by allocating an OXC connection for all existing traffic demand connections. \emph{Line} 10 calculates the completion time of traffic within each pod. \emph{Lines} 11-17 detail the process of allocating OXC connections based on completion time. In \emph{Line} 12, the completion time for each pair of pods is calculated to identify the maximum completion time and the corresponding pod pair. \emph{Lines} 13-16 describe the conditions under which OXC allocation concludes: either when adding OXC connections no longer enhances transmission efficiency or when no additional connections can be made at the bottleneck, then the allocation should be finished. Otherwise, an additional OXC connection is allocated at the bottleneck. Ultimately, we obtain the OXC topology configuration along with the corresponding transmission duration for this configuration.
+
+\begin{algorithm}
+	\caption{OXC topology algorithm of each group}
+	\label{alg:count_topo}
+	\LinesNumbered
+	Initial traffic demand $D_{i,j}^{k,t}/D_i^{k,t}$ and $LB_{i,j}^{k,t}$\;
+	\For{each job n in $G/G_{RAR}$}{
+		Specify traffic demand of job n and update $D_{i,j}^{k,t}/D_i^{k,t}$ and $LB_{i,j}^{k,t}$\;
+	}
+	\For{each job in $G_{RAR}$}{
+		Apply \emph{Algorithm} \ref{alg:ring} to decide how to form a ring\;
+		update $D_{i,j}^{k,t}/D_i^{k,t}$ and $LB_{i,j}^{k,t}$\;
+	}
+	Initial OXC topology $L_{i,j}^{k,t} = LB_{i,j}^{k,t}$\;
+	Calculate $T_{tor}$\;
+	\While{1}{
+		Calculate the completion time of each pair of pods and find the maximum time $T_{OXC}$ and corresponding pod pair $(i_m,j_m)$\;
+		\If{$T_{tor} \geq T_{OXC}$ or there is no available port in $i_m$ or $j_m$}{
+			break
+		}
+		Add a OXC link from pod $i_m$ to pod $j_m$ and update $L_{i,j}^{k,t}$\;
+	}
+	Return $L_{i,j}^{k,t}$, $\max\{T_{tor},T_{OXC}\}$
+\end{algorithm}
+
+\subsection{How to form a ring}
+
+%算法三考虑在业务使用环拓扑时如何成环，我们希望这个环拓扑可以与当前拓扑重复度更高，这样可以大幅降低拓扑复杂度，提高拓扑和流量矩阵的匹配度。要将这些节点连接成一个环，我们需要使得每个节点在拓扑中的出入度都为1，且不能存在子环。第2行我们找到该业务所有相关节点与这些点之间的边组成的子拓扑$L_{sub}^{i,j}$，然后计算其入度和出度。第3行初始化我们的环拓扑并通过适当的变换，以引入最少连接的方式形成一个真正的环。第4-12行遍历所有节点，控制环拓扑中它们的出入度都不大于1。以5-8行控制入度为例，我们找到这个点出度最大的邻点，删掉这两个点在环拓扑中的连接，控制出度的方式同理。第14行我们找到这个环拓扑中的所有互不相关的子拓扑，并找到其中的子环，剪开这个子环并更新环拓扑。第15行我们按序连接这些子拓扑，最终即可得到一个环拓扑。
+
+\emph{Algorithm} \ref{alg:ring} considers how to form a ring topology in RAR scenarios. We aim for this ring topology to exhibit a higher degree of redundancy with the current topology, which can significantly reduce the complexity of the topology and improve the degree of matching between the topology and the traffic matrix. To connect these nodes into a ring, we need to ensure that each node has an in-degree and out-degree of 1 in the topology, and that no sub-rings exist. In \emph{Line} 2, we identify all relevant nodes associated with this job and form a sub-topology $L_{sub}^{i,j}$ consisting of edges between these nodes, subsequently calculating their in-degrees and out-degrees. \emph{Line} 3 initializes our ring topology and, through appropriate transformations, forms a genuine ring with the minimum number of increasing connections. \emph{Lines} 4-12 iterate through all nodes, ensuring that their in-degrees and out-degrees in the ring topology do not exceed 1. For example, in \emph{Lines} 5-8, we control the in-degree by locating the neighboring node with the highest out-degree and removing the connection between these two nodes in the ring topology; a similar method is employed for controlling the out-degree. In \emph{Line} 14, we identify all mutually independent sub-topologies within this ring topology and locate any sub-rings among them, cutting these sub-rings and updating the ring topology. Finally, in line 15, we sequentially connect these sub-topologies to obtain a ring topology.
+
+\begin{algorithm}
+	\caption{Ring algorithm}
+	\label{alg:ring}
+	\LinesNumbered
+	Initial $In\_degree_i=Out\_degree_i$ = 0\;
+	Calculate Degree and link boolean value $L_{sub}^{i,j}$ in the sub-topology comprising only the root nodes.\;
+	Initial Ring = $L_{sub}^{i,j}$\;
+	\For{each node n in root\_node}{
+		\While{$In\_degree$\_n $>$ 1}{
+			Find the neighboring node $n'$ with the highest $Out\_degree$\;
+			Delete the link from $n'$ to n in Ring and update $In\_degree$ and $Out\_degree$\;
+		}
+		\While{$Out\_degree$\_n $>$ 1}{
+			Find the neighboring node $n'$ with the highest $In\_degree$\;
+			Delete the link from n to $n'$ in Ring and update $In\_degree$ and $Out\_degree$\;
+		}
+	}
+	Identify all disjoint sub-topologies of Ring and severing the sub-rings\;
+	Connect all sub-topologies sequentially and update Ring\;
+	\textbf{Return} Ring\;
+\end{algorithm}
+
+\section{Performance evaluations}
+
+\subsection{Simulation setup}
+%我们的大规模仿真假设在类似图1.b中所示的三层Clos网络中进行，这个网络中存在256个pod，每个pod上存在2048张A100，单张GPU利用率取0.4。为了保证算法1在初始情况下OXC端口满足限制，防止无法通过迭代进行优化，我们假设OCS层有32个OXC，每个OXC可以提供128个端口。将所有pod分为32组，每组包含8个pod，每一组pod使用一个OXC，拥有16个OXC端口，每个端口的带宽为150G，超额订阅比为1:1。
+
+Our large-scale simulation is conducted in a three-layer Clos network as illustrated in \emph{Figure} \ref{fig:sub2}. This network comprises 256 pods, each deploying 2048 A100 GPUs, whose utilization rate is equal to 0.4. To ensure that \emph{Algorithm} \ref{alg:Overall-algorithm} satisfies the constraints on the number of OXC ports in initial scenarios, thereby preventing optimization error through iteration, we assume that the OCS layer consists of 32 OXCs, each can provide 128 ports. All pods are divided into 32 groups, with each group containing 8 pods. Each group of pods utilizes one OXC and is equipped with 16 OXC ports, where each port has a bandwidth of 150G and an oversubscription ratio of 1:1.
+
+
+%默认场景下，网络中的业务类型为llama 3，计算精度取FP64，并行度在2~16间随机获取，模型大小从目前存在的1B、3B、8B到90B中随机选择，其对于参数量如表3所示。业务的集合通信方案从PS/RAR/AllToAll中随机选择，选择前两种方案时，该业务我们认为使用数据并行，否则使用专家并行。每个业务的单次训练时间由公式8给出，在默认使用重计算的情况下，K=8，上下文长度取8k，$\Phi$为表格中给出的参数量，$F_{GPU}$为GPU的峰值算力，efficient为GPU利用率。默认情况下，峰值算力取26TFLOPs，efficient=0.4.
+
+In the default scenario, the type od job in this network is Llama 3, with computational precision set to FP64. The parallel degree of each model is randomly selected from 2 to 16. The model size is randomly selected from existing options of 1B, 3B, 8B, and 90B, corresponding to the parameter quantities presented in \emph{Table} \ref{tbl_2}. The communication strategies for the workload are randomly chosen from PS, RAR, and AllToAll. For the first two strategies, we assume this job utilizes DP, while for AllToAll, we assume EP is employed. The training time for each workload is given by \emph{Eq.} \eqref{eq:8}. Under the default scenario with recomputation enabled, $K = 8$, the context length is set to 8k, $\Phi$ represents the parameter size provided in the table, $F_{GPU}$ denotes the peak FLOPs of the GPU, and \textit{efficient} indicates the GPU utilization rate.By default, $F_{GPU}=26TFLOPs,efficient=0.4$.
+
+\begin{table}[]
+	\caption{Parameters size of each job}
+	\label{tbl_2}
+	\centering
+	\begin{tabular}{c|c|c|c|c}
+		\toprule
+		& 1B & 3B & 8B & 90B\\
+		\midrule
+		parameter size (GB) & 2.46 & 6.42 & 21.2 & 177.6\\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\begin{equation}\label{eq:8}
+	t_{train} = \dfrac{K \times tokens \times \Phi}{F_{GPU} \times efficient}
+\end{equation}
+
+\subsection{Deployment scheme}
+%在我们的调度前，需要先确定每个业务的每个并行单元使用网络中的哪些GPU。我们要求每个业务都只部署在一组pod内，防止PS和AllToAll业务相关pod数目过多导致OXC端口不够用的问题。我们采用平均化各pod流量的方式部署业务的并行单元，先找到总流量最小的，服务器资源剩余足够的pod组，将该业务的GPU全部放在该pod组内。然后在pod组内按平均化各pod流量的方式部署并行单元。
+
+Before our scheduling process, it is essential to determine which GPUs in the network will be utilized for each parallel unit of each job. We require that each job is deployed exclusively within a single pod group to prevent the issue of insufficient OXC ports caused by an excessive number of related pods for PS and AllToAll jobs. We deploy the parallel units of the jobs by averaging the traffic across the pods. First, we identify the pod group with the minimum total traffic and sufficient remaining server resources, and we allocate all GPUs for that job within this pod group. Subsequently, the parallel units are deployed within the pod group based on the averaged traffic across the pods.
+
+\subsection{Large-scale simulation}
+%我们的大规模仿真观察了不同业务数目和不同上下文长度的单轮训练时间对比，业务数目对通信时间有密切联系而上下文长度与训练时间相关，结果如图所示。
+
+Our large-scale simulations observed the comparison of single-round training times with varying numbers of jobs and different context lengths. The number of jobs is closely related to the communication time, while the context length is associated with the training time, as shown in the figure...
+
+\section{Conclusion}
+%在这项工作中，我们在ODCN中考虑了多种业务以不同并行方案同时训练的场景，考虑将业务分组后进行时分复用，以重叠训练和通信过程，达到提高训练效率的目的。我们为此设计了一个ILP，并设计了相关的分组算法和拓扑计算算法。我们的大规模仿真也证明，我们的方案可以显著提高训练效率。
+
+In this work, we consider scenarios in the ODCN where multiple jobs are trained simultaneously using different parallel schemes. We propose to group the jobs for time-division multiplexing to overlap the training and communication processes, thereby enhancing training efficiency. To achieve this, we designed an ILP along with relevant grouping algorithms and topology computation algorithms. Our large-scale simulations also demonstrate that our approach can significantly improve training efficiency.
+
+\begin{comment}
+\subsection{Abbreviations and Acronyms}\label{AA}
+Define abbreviations and acronyms the first time they are used in the text, 
+even after they have been defined in the abstract. Abbreviations such as 
+IEEE, SI, MKS, CGS, ac, dc, and rms do not have to be defined. Do not use 
+abbreviations in the title or heads unless they are unavoidable.
+
+\subsection{Units}
+\begin{itemize}
+\item Use either SI (MKS) or CGS as primary units. (SI units are encouraged.) English units may be used as secondary units (in parentheses). An exception would be the use of English units as identifiers in trade, such as ``3.5-inch disk drive''.
+\item Avoid combining SI and CGS units, such as current in amperes and magnetic field in oersteds. This often leads to confusion because equations do not balance dimensionally. If you must use mixed units, clearly state the units for each quantity that you use in an equation.
+\item Do not mix complete spellings and abbreviations of units: ``Wb/m\textsuperscript{2}'' or ``webers per square meter'', not ``webers/m\textsuperscript{2}''. Spell out units when they appear in text: ``. . . a few henries'', not ``. . . a few H''.
+\item Use a zero before decimal points: ``0.25'', not ``.25''. Use ``cm\textsuperscript{3}'', not ``cc''.)
+\end{itemize}
+
+\subsection{Equations}
+Number equations consecutively. To make your 
+equations more compact, you may use the solidus (~/~), the exp function, or 
+appropriate exponents. Italicize Roman symbols for quantities and variables, 
+but not Greek symbols. Use a long dash rather than a hyphen for a minus 
+sign. Punctuate equations with commas or periods when they are part of a 
+sentence, as in:
+\begin{equation}
+a+b=\gamma\label{eq}
+\end{equation}
+
+Be sure that the 
+symbols in your equation have been defined before or immediately following 
+the equation. Use ``\eqref{eq}'', not ``Eq.~\eqref{eq}'' or ``equation \eqref{eq}'', except at 
+the beginning of a sentence: ``Equation \eqref{eq} is . . .''
+
+\subsection{\LaTeX-Specific Advice}
+
+Please use ``soft'' (e.g., \verb|\eqref{Eq}|) cross references instead
+of ``hard'' references (e.g., \verb|(1)|). That will make it possible
+to combine sections, add equations, or change the order of figures or
+citations without having to go through the file line by line.
+
+Please don't use the \verb|{eqnarray}| equation environment. Use
+\verb|{align}| or \verb|{IEEEeqnarray}| instead. The \verb|{eqnarray}|
+environment leaves unsightly spaces around relation symbols.
+
+Please note that the \verb|{subequations}| environment in {\LaTeX}
+will increment the main equation counter even when there are no
+equation numbers displayed. If you forget that, you might write an
+article in which the equation numbers skip from (17) to (20), causing
+the copy editors to wonder if you've discovered a new method of
+counting.
+
+{\BibTeX} does not work by magic. It doesn't get the bibliographic
+data from thin air but from .bib files. If you use {\BibTeX} to produce a
+bibliography you must send the .bib files. 
+
+{\LaTeX} can't read your mind. If you assign the same label to a
+subsubsection and a table, you might find that Table I has been cross
+referenced as Table IV-B3. 
+
+{\LaTeX} does not have precognitive abilities. If you put a
+\verb|\label| command before the command that updates the counter it's
+supposed to be using, the label will pick up the last counter to be
+cross referenced instead. In particular, a \verb|\label| command
+should not go before the caption of a figure or a table.
+
+Do not use \verb|\nonumber| inside the \verb|{array}| environment. It
+will not stop equation numbers inside \verb|{array}| (there won't be
+any anyway) and it might stop a wanted equation number in the
+surrounding equation.
+
+\subsection{Some Common Mistakes}\label{SCM}
+\begin{itemize}
+\item The word ``data'' is plural, not singular.
+\item The subscript for the permeability of vacuum $\mu_{0}$, and other common scientific constants, is zero with subscript formatting, not a lowercase letter ``o''.
+\item In American English, commas, semicolons, periods, question and exclamation marks are located within quotation marks only when a complete thought or name is cited, such as a title or full quotation. When quotation marks are used, instead of a bold or italic typeface, to highlight a word or phrase, punctuation should appear outside of the quotation marks. A parenthetical phrase or statement at the end of a sentence is punctuated outside of the closing parenthesis (like this). (A parenthetical sentence is punctuated within the parentheses.)
+\item A graph within a graph is an ``inset'', not an ``insert''. The word alternatively is preferred to the word ``alternately'' (unless you really mean something that alternates).
+\item Do not use the word ``essentially'' to mean ``approximately'' or ``effectively''.
+\item In your paper title, if the words ``that uses'' can accurately replace the word ``using'', capitalize the ``u''; if not, keep using lower-cased.
+\item Be aware of the different meanings of the homophones ``affect'' and ``effect'', ``complement'' and ``compliment'', ``discreet'' and ``discrete'', ``principal'' and ``principle''.
+\item Do not confuse ``imply'' and ``infer''.
+\item The prefix ``non'' is not a word; it should be joined to the word it modifies, usually without a hyphen.
+\item There is no period after the ``et'' in the Latin abbreviation ``et al.''.
+\item The abbreviation ``i.e.'' means ``that is'', and the abbreviation ``e.g.'' means ``for example''.
+\end{itemize}
+An excellent style manual for science writers is \cite{b7}.
+
+\subsection{Authors and Affiliations}
+\textbf{The class file is designed for, but not limited to, six authors.} A 
+minimum of one author is required for all conference articles. Author names 
+should be listed starting from left to right and then moving down to the 
+next line. This is the author sequence that will be used in future citations 
+and by indexing services. Names should not be listed in columns nor group by 
+affiliation. Please keep your affiliations as succinct as possible (for 
+example, do not differentiate among departments of the same organization).
+
+\subsection{Identify the Headings}
+Headings, or heads, are organizational devices that guide the reader through 
+your paper. There are two types: component heads and text heads.
+
+Component heads identify the different components of your paper and are not 
+topically subordinate to each other. Examples include Acknowledgments and 
+References and, for these, the correct style to use is ``Heading 5''. Use 
+``figure caption'' for your Figure captions, and ``table head'' for your 
+table title. Run-in heads, such as ``Abstract'', will require you to apply a 
+style (in this case, italic) in addition to the style provided by the drop 
+down menu to differentiate the head from the text.
+
+Text heads organize the topics on a relational, hierarchical basis. For 
+example, the paper title is the primary text head because all subsequent 
+material relates and elaborates on this one topic. If there are two or more 
+sub-topics, the next level head (uppercase Roman numerals) should be used 
+and, conversely, if there are not at least two sub-topics, then no subheads 
+should be introduced.
+
+\subsection{Figures and Tables}
+\paragraph{Positioning Figures and Tables} Place figures and tables at the top and 
+bottom of columns. Avoid placing them in the middle of columns. Large 
+figures and tables may span across both columns. Figure captions should be 
+below the figures; table heads should appear above the tables. Insert 
+figures and tables after they are cited in the text. Use the abbreviation 
+``Fig.~\ref{fig}'', even at the beginning of a sentence.
+
+\begin{table}[htbp]
+\caption{Table Type Styles}
+\begin{center}
+\begin{tabular}{|c|c|c|c|}
+\hline
+\textbf{Table}&\multicolumn{3}{|c|}{\textbf{Table Column Head}} \\
+\cline{2-4} 
+\textbf{Head} & \textbf{\textit{Table column subhead}}& \textbf{\textit{Subhead}}& \textbf{\textit{Subhead}} \\
+\hline
+copy& More table copy$^{\mathrm{a}}$& &  \\
+\hline
+\multicolumn{4}{l}{$^{\mathrm{a}}$Sample of a Table footnote.}
+\end{tabular}
+\label{tab1}
+\end{center}
+\end{table}
+\begin{figure}[htbp]
+\centerline{\includegraphics{fig1.png}}
+\caption{Example of a figure caption.}
+\label{fig}
+\end{figure}
+Figure Labels: Use 8 point Times New Roman for Figure labels. Use words 
+rather than symbols or abbreviations when writing Figure axis labels to 
+avoid confusing the reader. As an example, write the quantity 
+``Magnetization'', or ``Magnetization, M'', not just ``M''. If including 
+units in the label, present them within parentheses. Do not label axes only 
+with units. In the example, write ``Magnetization (A/m)'' or ``Magnetization 
+\{A[m(1)]\}'', not just ``A/m''. Do not label axes with a ratio of 
+quantities and units. For example, write ``Temperature (K)'', not 
+``Temperature/K''.
+
+\section*{Acknowledgment}
+
+The preferred spelling of the word ``acknowledgment'' in America is without 
+an ``e'' after the ``g''. Avoid the stilted expression ``one of us (R. B. 
+G.) thanks $\ldots$''. Instead, try ``R. B. G. thanks$\ldots$''. Put sponsor 
+acknowledgments in the unnumbered footnote on the first page.
+
+\section*{References}
+
+Please number citations consecutively within brackets \cite{b1}. The 
+sentence punctuation follows the bracket \cite{b2}. Refer simply to the reference 
+number, as in \cite{b3}---do not use ``Ref. \cite{b3}'' or ``reference \cite{b3}'' except at 
+the beginning of a sentence: ``Reference \cite{b3} was the first $\ldots$''
+
+Number footnotes separately in superscripts. Place the actual footnote at 
+the bottom of the column in which it was cited. Do not put footnotes in the 
+abstract or reference list. Use letters for table footnotes.
+
+Unless there are six authors or more give all authors' names; do not use 
+``et al.''. Papers that have not been published, even if they have been 
+submitted for publication, should be cited as ``unpublished'' \cite{b4}. Papers 
+that have been accepted for publication should be cited as ``in press'' \cite{b5}. 
+Capitalize only the first word in a paper title, except for proper nouns and 
+element symbols.
+
+For papers published in translation journals, please give the English 
+citation first, followed by the original foreign-language citation \cite{b6}.
+
+\begin{thebibliography}{00}
+\bibitem{b1} G. Eason, B. Noble, and I. N. Sneddon, ``On certain integrals of Lipschitz-Hankel type involving products of Bessel functions,'' Phil. Trans. Roy. Soc. London, vol. A247, pp. 529--551, April 1955.
+\bibitem{b2} J. Clerk Maxwell, A Treatise on Electricity and Magnetism, 3rd ed., vol. 2. Oxford: Clarendon, 1892, pp.68--73.
+\bibitem{b3} I. S. Jacobs and C. P. Bean, ``Fine particles, thin films and exchange anisotropy,'' in Magnetism, vol. III, G. T. Rado and H. Suhl, Eds. New York: Academic, 1963, pp. 271--350.
+\bibitem{b4} K. Elissa, ``Title of paper if known,'' unpublished.
+\bibitem{b5} R. Nicole, ``Title of paper with only first word capitalized,'' J. Name Stand. Abbrev., in press.
+\bibitem{b6} Y. Yorozu, M. Hirano, K. Oka, and Y. Tagawa, ``Electron spectroscopy studies on magneto-optical media and plastic substrate interface,'' IEEE Transl. J. Magn. Japan, vol. 2, pp. 740--741, August 1987 [Digests 9th Annual Conf. Magnetics Japan, p. 301, 1982].
+\bibitem{b7} M. Young, The Technical Writer's Handbook. Mill Valley, CA: University Science, 1989.
+\end{thebibliography}
+\vspace{12pt}
+\color{red}
+IEEE conference templates contain guidance text for composing and formatting conference papers. Please ensure that all template text is removed from your conference paper prior to submission to the conference. Failure to remove the template text from your paper may result in your paper not being published.
+\end{comment}
+\bibliographystyle{IEEEtran}
+\bibliography{IEEEabrv, references}
+\end{document}
